@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+
+set -eu -o pipefail
+
+# ------------------------------------------------------------------------------
+# Check for required tools and environment variables
+# ------------------------------------------------------------------------------
+if ! command -v curl &>/dev/null; then
+  echo >&2 "Error: curl is not installed."
+  exit 1
+fi
+
+if ! command -v jq &>/dev/null; then
+  echo >&2 "Error: jq is not installed."
+  exit 1
+fi
+
+if [ -z "${OPENAI_API_KEY:-}" ]; then
+  echo >&2 "Error: OPENAI_API_KEY is not set in the environment."
+  exit 1
+fi
+
+# ------------------------------------------------------------------------------
+# Global variables
+# ------------------------------------------------------------------------------
+PROMPTS=()
+OPTIONS=()
+OPENAI_MODEL="${OPENAI_MODEL:-gpt-3.5-turbo-16k}"
+CLEAR_CACHE=false
+CLEAR_CACHE_ALL=false
+NO_CACHE=false
+DEBUG="${DEBUG:-false}"
+GREEN="\033[32m"
+RESET="\033[0m"
+
+# ------------------------------------------------------------------------------
+# Functions
+# ------------------------------------------------------------------------------
+function usage() {
+  local exit_code="${1:-0}"
+
+  cat <<EOL
+usage: gpt [OPTIONS]
+
+Options:
+  --help      | -h    show help information
+  --prompt    | -p    add a prompt to the list; can be used multiple times
+  --option    | -o    set an openai chat completions API option; can be used multiple times
+  --clear     | -c    clear the cache for the current prompt
+  --clear-all         clear the cache for all prompts
+  --no-cache          do not use the cache
+
+Environmental variables:
+
+  OPENAI_API_KEY      your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
+  OPENAI_MODEL        the model to use; defaults to gpt-3.5-turbo-16k
+
+Examples:
+
+  # Generate a ridiculous script in bash, format it using gum, and then "type"
+  # it out.
+  gpt -p 'Write a skewheap in bash' | gum format --theme dark | typing
+
+EOL
+
+  exit "$exit_code"
+}
+
+cache_key() {
+  echo -n "${OPTIONS[*]}${PROMPTS[*]}" | sha256sum | awk '{print $1}'
+}
+
+build_payload() {
+  local payload
+  local new_message
+
+  # Initialize payload with model and stream fields
+  payload=$(jq -n --arg model "$OPENAI_MODEL" '{"model": $model, "stream": true, "messages": []}')
+
+  for option in "${OPTIONS[@]}"; do
+    key="${option%%:*}"
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+
+    val="${option#*:}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+
+    payload=$(jq --arg k "$key" --arg v "$val" '. + {($k): $v}' <<<"$payload")
+  done
+
+  # Loop through all_prompts to add more messages
+  for prompt in "${PROMPTS[@]}"; do
+    new_message=$(jq -n --arg content "$prompt" '{"role": "user", "content": $content}')
+    payload=$(jq --argjson new_msg "$new_message" '.messages += [$new_msg]' <<<"$payload")
+  done
+
+  echo "$payload"
+}
+
+inspect() {
+  local line
+
+  while IFS= read -r line; do
+    if [ "$DEBUG" = "true" ]; then
+      echo >&2 -e "${GREEN}inspect>${RESET} ${line}"
+    fi
+
+    echo "${line}"
+  done
+}
+
+get_completion() {
+  curl -s \
+    -N "https://api.openai.com/v1/chat/completions" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -d "$(build_payload)" |
+    inspect |
+    while IFS= read -r line; do
+      if [[ $line == *"[DONE]"* ]]; then
+        exit 0
+      fi
+
+      processed_line=$(echo "$line" | awk '/data: / { sub(/^data: /, ""); print }')
+
+      if [[ -n $processed_line ]]; then
+        if echo "$processed_line" | jq -e 'has("error")' >/dev/null 2>&1; then
+          error_message=$(echo "$processed_line" | jq -r '.error.message')
+          echo -e "\e[31m${error_message}\e[0m" # Print in red
+          exit 1
+        else
+          echo "$processed_line" | jq -j 'if .choices[0].delta.content == null then "\n" else .choices[0].delta.content end'
+        fi
+      fi
+    done
+}
+
+# ------------------------------------------------------------------------------
+# Process arguments
+# ------------------------------------------------------------------------------
+while (("$#")); do
+  case "$1" in
+    --help | -h)
+      usage 0
+      ;;
+
+    --clear | -c)
+      CLEAR_CACHE=true
+      shift
+      ;;
+
+    --clear-all)
+      CLEAR_CACHE_ALL=true
+      shift
+      ;;
+
+    --prompt | -p)
+      PROMPTS+=("$2")
+      shift 2
+      ;;
+
+    --opt | -o)
+      OPTIONS+=("$2")
+      shift 2
+      ;;
+
+    --no-cache)
+      NO_CACHE=true
+      shift
+      ;;
+
+    *)
+      echo >&2 "Error: unknown argument '$1'"
+      usage 1
+      ;;
+  esac
+done
+
+# ------------------------------------------------------------------------------
+# Main logic
+# ------------------------------------------------------------------------------
+cache_dir="/tmp/completions.cache"
+cache_key=$(cache_key)
+cache_file="$cache_dir/$cache_key"
+
+# Ensure the cached results directory exists
+mkdir -p "$cache_dir" 2>/dev/null || true
+
+# Clear all cached results if --clear-all was set
+if [ "$CLEAR_CACHE_ALL" = "true" ]; then
+  rm -f "$cache_dir"/*
+fi
+
+# Clear the cache for this request if --clear was set
+if [ "$CLEAR_CACHE" = "true" ]; then
+  rm -f "$cache_file"
+fi
+
+if [ "$NO_CACHE" = "true" ]; then
+  get_completion
+elif [ -e "$cache_file" ]; then
+  cat "$cache_file"
+else
+  get_completion | tee "$cache_file"
+fi
+
+echo
