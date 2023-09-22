@@ -24,11 +24,16 @@ fi
 # Global variables
 # ------------------------------------------------------------------------------
 PROMPTS=()
+USER_PROMPTS=()
+SYSTEM_PROMPTS=()
+
 OPTIONS=()
 OPENAI_MODEL="${OPENAI_MODEL:-gpt-3.5-turbo-16k}"
+
 CLEAR_CACHE=false
 CLEAR_CACHE_ALL=false
 NO_CACHE=false
+
 DEBUG="${DEBUG:-false}"
 GREEN="\033[32m"
 RESET="\033[0m"
@@ -44,7 +49,9 @@ usage: gpt [OPTIONS]
 
 Options:
   --help      | -h    show help information
-  --prompt    | -p    add a prompt to the list; can be used multiple times
+  --user      | -u    add a user prompt to the list; can be used multiple times
+  --system    | -s    add a system prompt to the list; can be used multiple times
+  --prompt    | -p    add a prompt to the list; can be used multiple times (deprecated; use -u instead)
   --option    | -o    set an openai chat completions API option; can be used multiple times
   --clear     | -c    clear the cache for the current prompt
   --clear-all         clear the cache for all prompts
@@ -66,7 +73,7 @@ EOL
 }
 
 cache_key() {
-  echo -n "${OPTIONS[*]}${PROMPTS[*]}" | sha256sum | awk '{print $1}'
+  echo -n "${OPTIONS[*]}${SYSTEM_PROMPTS[*]}${USER_PROMPTS[*]}${PROMPTS[*]}" | sha256sum | awk '{print $1}'
 }
 
 build_payload() {
@@ -86,6 +93,18 @@ build_payload() {
     val="${val%"${val##*[![:space:]]}"}"
 
     payload=$(jq --arg k "$key" --arg v "$val" '. + {($k): $v}' <<< "$payload")
+  done
+
+  # Loop through system_prompts to add more messages
+  for prompt in "${SYSTEM_PROMPTS[@]}"; do
+    new_message=$(jq -n --arg content "$prompt" '{"role": "system", "content": $content}')
+    payload=$(jq --argjson new_msg "$new_message" '.messages += [$new_msg]' <<< "$payload")
+  done
+
+  # Loop through user_prompts to add more messages
+  for prompt in "${USER_PROMPTS[@]}"; do
+    new_message=$(jq -n --arg content "$prompt" '{"role": "user", "content": $content}')
+    payload=$(jq --argjson new_msg "$new_message" '.messages += [$new_msg]' <<< "$payload")
   done
 
   # Loop through all_prompts to add more messages
@@ -152,6 +171,16 @@ while (("$#")); do
     --clear-all)
       CLEAR_CACHE_ALL=true
       shift
+      ;;
+
+    --user | -u)
+      USER_PROMPTS+=("$2")
+      shift 2
+      ;;
+
+    --system | -s)
+      SYSTEM_PROMPTS+=("$2")
+      shift 2
       ;;
 
     --prompt | -p)
