@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+set -eu -o pipefail
+
+green="\033[32m"
+reset="\033[0m"
+
+conversation=()
+tmp=$(mktemp)
+
+while true; do
+  msg=$(gum write --width 100 --height 10 --char-limit 0 --placeholder "Control-D submits; escape cancels")
+
+  if [ -n "$msg" ]; then
+    conversation+=(-u "$msg")
+
+    echo -e "${green}You:${reset}"
+    echo "$msg"
+    echo
+
+    echo -e "${green}GPT:${reset}"
+    gpt --no-cache "${conversation[@]}" | tee "$tmp"
+
+    conversation+=(-s "$(cat "$tmp")")
+  else
+    break
+  fi
+done
