@@ -26,6 +26,19 @@ Simply execute `chat` and follow the menu prompts to start a conversation.
 
 # Installation
 
+## Directly
+
+1. Ensure that `/usr/local/bin` is in your `PATH`
+2. Ensure that you have write permissions to `/usr/local/bin`
+3. Download to `/usr/local/bin`
+```bash
+curl -sSL https://raw.githubusercontent.com/sysread/bash-gpt/main/gpt -o /usr/local/bin/gpt && \
+curl -sSL https://raw.githubusercontent.com/sysread/bash-gpt/main/chat -o /usr/local/bin/chat && \
+chmod +x /usr/local/bin/gpt /usr/local/bin/chat
+```
+
+## From repo
+
 1. Check out repository:
 ```bash
 git clone https://github.com/sysread/bash-gpt
