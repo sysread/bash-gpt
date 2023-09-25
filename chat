@@ -11,6 +11,7 @@ reset="\033[0m"
 conversations_dir="$HOME/.gpt/conversations"
 conversation_file="$conversations_dir/$(date +%s).txt"
 
+title="New conversation"
 conversation=()
 tmp=$(mktemp)
 
@@ -65,7 +66,6 @@ serialize_conversation() {
 
 save_conversation() {
   local convo
-  local title
 
   convo=$(serialize_conversation)
   title=$(gpt -u "In one short phrase, what was this conversation about? $convo")
@@ -88,10 +88,13 @@ restore_conversation() {
 
   while IFS= read -r line; do
     # Skip the title line
-    [[ "$line" == "Title:"* ]] && continue
+    if [[ "$line" == "Title:"* ]]; then
+      echo "BEFORE: $title"
+      title="${line#*: }"
+      echo "AFTER: $title"
 
     # Detect prefix (either User: or System:) in the line
-    if [[ "$line" == "User:"* ]] || [[ "$line" == "System:"* ]]; then
+    elif [[ "$line" == "User:"* ]] || [[ "$line" == "System:"* ]]; then
       # Remove trailing whitespace from current_message
       current_message=$(echo -n "$current_message" | sed 's/[[:space:]]*$//')
 
@@ -123,6 +126,10 @@ repeat_conversation() {
   local prefix
   local msg
 
+  echo -e "${green}Conversation:${reset} $title"
+  echo -e "${green}----------${reset}"
+  echo
+
   for ((i = 0; i < ${#conversation[@]}; i += 2)); do
     msg="${conversation[i + 1]}"
 
@@ -143,7 +150,6 @@ repeat_conversation() {
 
 list_conversations() {
   local filename
-  local title
 
   for filename in "$conversations_dir"/*.txt; do
     if [[ -f "$filename" ]]; then
@@ -153,10 +159,11 @@ list_conversations() {
 }
 
 select_conversation() {
-  local title
+  local choice
+  local file
 
-  title=$(list_conversations | gum filter --fuzzy --sort)
-  file=$(find "$conversations_dir" -name "*.txt" -exec grep -l "^Title: $title" {} \;)
+  choice=$(list_conversations | gum filter --fuzzy --sort)
+  file=$(find "$conversations_dir" -name "*.txt" -exec grep -l "^Title: $choice" {} \;)
 
   restore_conversation "$file"
 }
