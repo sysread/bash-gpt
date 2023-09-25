@@ -5,24 +5,233 @@ set -eu -o pipefail
 green="\033[32m"
 reset="\033[0m"
 
+conversations_dir="$HOME/.gpt/conversations"
+
+mkdir -p "$conversations_dir"
+
+conversation_file="$conversations_dir/$(date +%s).txt"
+
 conversation=()
 tmp=$(mktemp)
 
-while true; do
-  msg=$(gum write --width 100 --height 10 --char-limit 0 --placeholder "Control-D submits; escape cancels")
+serialize_conversation() {
+  local output=""
 
-  if [ -n "$msg" ]; then
-    conversation+=(-u "$msg")
+  for ((i = 0; i < ${#conversation[@]}; i += 2)); do
+    local prefix
+    local msg="${conversation[i + 1]}"
 
-    echo -e "${green}You:${reset}"
-    echo "$msg"
-    echo
+    case "${conversation[i]}" in
+      -u)
+        prefix="User"
+        ;;
+      -s)
+        prefix="System"
+        ;;
+      *)
+        echo >&2 "Unknown type: ${conversation[i]}"
+        exit 1
+        ;;
+    esac
 
-    echo -e "${green}GPT:${reset}"
-    gpt --no-cache "${conversation[@]}" | tee "$tmp"
+    output+="${prefix}: ${msg}\n"
+  done
 
-    conversation+=(-s "$(cat "$tmp")")
-  else
-    break
+  echo "$output"
+}
+
+save_conversation() {
+  local convo
+  local title
+
+  convo=$(serialize_conversation)
+  title=$(gpt -u "In one short phrase, what was this conversation about? $convo")
+
+  echo "Title: $title" > "$conversation_file"
+  echo -e "$convo" | sed 's/[[:space:]]*$//' >> "$conversation_file"
+}
+
+restore_conversation() {
+  local current_prefix=""
+  local current_message=""
+
+  conversation_file="$1"
+  conversation=()
+
+  if [[ ! -e "$conversation_file" ]]; then
+    echo >&2 "Conversation file does not exist: $conversation_file"
+    exit 1
   fi
-done
+
+  while IFS= read -r line; do
+    # Skip the title line
+    [[ "$line" == "Title:"* ]] && continue
+
+    # Detect prefix (either User: or System:) in the line
+    if [[ "$line" == "User:"* ]] || [[ "$line" == "System:"* ]]; then
+      # Remove trailing whitespace from current_message
+      current_message=$(echo -n "$current_message" | sed 's/[[:space:]]*$//')
+
+      # If we were collecting a message, add it to the array
+      if [ -n "$current_message" ]; then
+        conversation+=("$current_prefix" "$current_message")
+      fi
+
+      # Set new prefix and clear the current message
+      current_prefix=$([[ "$line" == "User:"* ]] && echo "-u" || echo "-s")
+      current_message="${line#*: }"
+
+    else
+      # Append to the current message
+      current_message+=$'\n'"$line"
+    fi
+  done < "$conversation_file"
+
+  # Remove trailing whitespace from last message
+  current_message=$(echo -n "$current_message" | sed 's/[[:space:]]*$//')
+
+  # Add the last message to the array if it exists
+  if [ -n "$current_message" ]; then
+    conversation+=("$current_prefix" "$current_message")
+  fi
+}
+
+#restore_conversation() {
+#  local current_prefix=""
+#  local current_message=""
+#
+#  conversation_file="$1"
+#  conversation=()
+#
+#  if [[ ! -e "$conversation_file" ]]; then
+#    echo >&2 "Conversation file does not exist: $conversation_file"
+#    exit 1
+#  fi
+#
+#  while IFS= read -r line; do
+#    # Skip the title line
+#    [[ "$line" == "Title:"* ]] && continue
+#
+#    # Detect prefix (either User: or System:) in the line
+#    if [[ "$line" == "User:"* ]]; then
+#      # If we were collecting a message, add it to the array
+#      if [ -n "$current_message" ]; then
+#        conversation+=("$current_prefix" "$current_message")
+#      fi
+#
+#      # Set new prefix and clear the current message
+#      current_prefix="-u"
+#      current_message="${line#User: }"
+#
+#    elif [[ "$line" == "System:"* ]]; then
+#      # If we were collecting a message, add it to the array
+#      if [ -n "$current_message" ]; then
+#        conversation+=("$current_prefix" "$current_message")
+#      fi
+#
+#      # Set new prefix and clear the current message
+#      current_prefix="-s"
+#      current_message="${line#System: }"
+#
+#    else
+#      # Append to the current message
+#      current_message+=$'\n'"$line"
+#    fi
+#  done < "$conversation_file"
+#
+#  # Add the last message to the array if it exists
+#  if [ -n "$current_message" ]; then
+#    conversation+=("$current_prefix" "$current_message")
+#  fi
+#}
+
+repeat_conversation() {
+  local prefix
+  local msg
+
+  for ((i = 0; i < ${#conversation[@]}; i += 2)); do
+    msg="${conversation[i + 1]}"
+
+    case "${conversation[i]}" in
+      -u)
+        prefix="${green}You:${reset}"
+        ;;
+      -s)
+        prefix="${green}GPT:${reset}"
+        ;;
+    esac
+
+    echo -e "$prefix"
+    echo -e "$msg"
+    echo
+  done
+}
+
+list_conversations() {
+  local filename
+  local title
+
+  for filename in "$conversations_dir"/*.txt; do
+    if [[ -f "$filename" ]]; then
+      awk '/^Title: / { print substr($0, 8); exit }' "$filename"
+    fi
+  done
+}
+
+select_conversation() {
+  local title
+
+  title=$(list_conversations | gum filter --fuzzy --sort)
+  file=$(find "$conversations_dir" -name "*.txt" -exec grep -l "^Title: $title" {} \;)
+
+  restore_conversation "$file"
+}
+
+converse() {
+  while true; do
+    msg=$(gum write --width 100 --height 10 --char-limit 0 --placeholder "Control-D submits; escape cancels" || true)
+
+    if [ -n "$msg" ]; then
+      conversation+=(-u "$msg")
+
+      echo -e "${green}You:${reset}"
+      echo "$msg"
+      echo
+
+      echo -e "${green}GPT:${reset}"
+      gpt --no-cache "${conversation[@]}" | tee "$tmp"
+
+      conversation+=(-s "$(cat "$tmp")")
+
+      save_conversation
+    else
+      break
+    fi
+  done
+}
+
+menu() {
+  local choice
+
+  while true; do
+    choice=$(gum choose --ordered "New conversation" "Load conversation" "Exit")
+
+    case "$choice" in
+      "New conversation")
+        converse
+        ;;
+
+      "Load conversation")
+        select_conversation
+        repeat_conversation
+        converse
+        ;;
+
+      "Exit")
+        return 0
+        ;;
+    esac
+  done
+}
+
+menu
