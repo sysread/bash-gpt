@@ -139,8 +139,10 @@ select_conversation() {
 }
 
 converse() {
+  local placeholder="Control-D submits; escape cancels"
+
   while true; do
-    msg=$(gum write --width 100 --height 10 --char-limit 0 --placeholder "Control-D submits; escape cancels" || true)
+    msg=$(gum write --width 100 --height 10 --char-limit 0 --placeholder "$placeholder" || true)
 
     if [ -n "$msg" ]; then
       conversation+=(-u "$msg")
