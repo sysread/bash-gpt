@@ -173,19 +173,32 @@ select_conversation() {
 copy_file_to_clipboard() {
   local file_path="$1"
 
-  if [[ "$(uname)" == "Darwin" ]]; then
-    pbcopy < "$file_path"
-  elif [[ "$(uname)" == "Linux" ]]; then
-    if command -v xclip > /dev/null; then
-      xclip -selection clipboard < "$file_path"
-    elif command -v xsel > /dev/null; then
-      xsel -b < "$file_path"
-    else
-      echo >&2 "xclip or xsel is not installed."
-    fi
-  else
-    echo >&2 "copy file not implemented for $(uname)"
-  fi
+  case "$(uname)" in
+    Darwin)
+      if command -v pbcopy > /dev/null; then
+        pbcopy < "$file_path"
+      else
+        echo >&2 "pbcopy is not installed"
+        exit 1
+      fi
+      ;;
+
+    Linux)
+      if command -v xclip > /dev/null; then
+        xclip -selection clipboard < "$file_path"
+      elif command -v xsel > /dev/null; then
+        xsel -b < "$file_path"
+      else
+        echo >&2 "xclip or xsel is not installed"
+        exit 1
+      fi
+      ;;
+
+    *)
+      echo >&2 "copy file not implemented for $(uname)"
+      exit 1
+      ;;
+  esac
 }
 
 converse() {
