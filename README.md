@@ -1,28 +1,46 @@
-# NAME
+# Command line GPT utils
 
-gpt
+# Utilities provided
 
-# SYNOPSIS
+## `gpt`
 
+Sends a prompt or series of prompts to the OpenAI discussions API and outputs
+the response as it arrives.
+
+```bash
+gpt -s 'You are a helpful assistant' \
+    -p 'Rewrite the second act of Much Ado About Nothing in modern English'
 ```
-# Generate a something useful, then format it using gum
-gpt --prompt "redesign golang so it's not so goddamn awful" | gum format
+
+## `chat`
+
+Provides a command line interface to have conversational interactions similar
+to ChatGPT from the command line, with a searchable conversation history.
+Simply execute `chat` and follow the menu prompts to start a conversation.
+
+# Dependencies
+
+- [`curl`](https://curl.se/)
+- [`jq`](https://github.com/jqlang/jq)
+- [`gum`](https://github.com/charmbracelet/gum)
+
+# Installation
+
+1. Check out repository:
+```bash
+git clone https://github.com/sysread/bash-gpt
+```
+2. Add to your PATH
+```bash
+export PATH="$PATH:/path/to/bash-gpt"
 ```
 
-# DESCRIPTION
-
-Interact with OpenAI's conversation completion API from the shell.
-
-# OPTIONS
-
-  `--help`      | `-h`    show help information
-  `--prompt`    | `-p`    add a prompt to the list; can be used multiple times
-  `--option`    | `-o`    set an openai chat completions API option; can be used multiple times
-  `--clear`     | `-c`    clear the cache for the current prompt
-  `--clear-all`           clear the cache for all prompts
-  `--no-cache`            do not use the cache
-
-# ENV VARS
+# Environment variables
 
 - `OPENAI_API_KEY` - your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
 - `OPENAI_MODEL` - the [model](https://platform.openai.com/docs/models) to use; defaults to gpt-3.5-turbo-16k
+
+# Support and compatibility
+
+Tested on macOS. Ought to work on linux as well. Please file a ticket if you
+find an issue on mac or linux. Better yet, send me a pull request :)
