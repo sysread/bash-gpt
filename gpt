@@ -65,7 +65,7 @@ Environmental variables:
 Examples:
 
   # Generate a ridiculous script in bash, format it using gum
-  gpt -p 'Write a skewheap in bash' | gum format --theme dark
+  gpt -u 'Write a skewheap in bash' | gum format --theme dark
 
 EOL
 
