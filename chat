@@ -138,28 +138,54 @@ select_conversation() {
   restore_conversation "$file"
 }
 
+copy_file_to_clipboard() {
+  local file_path="$1"
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    pbcopy < "$file_path"
+  elif [[ "$(uname)" == "Linux" ]]; then
+    if command -v xclip > /dev/null; then
+      xclip -selection clipboard < "$file_path"
+    elif command -v xsel > /dev/null; then
+      xsel -b < "$file_path"
+    else
+      echo >&2 "xclip or xsel is not installed."
+    fi
+  else
+    echo >&2 "copy file not implemented for $(uname)"
+  fi
+}
+
 converse() {
-  local placeholder="Control-D submits; escape cancels"
+  local placeholder="ctrl-d submits; esc cancels; send \\f to copy a file to clipboard"
 
   while true; do
     msg=$(gum write --width 100 --height 10 --char-limit 0 --placeholder "$placeholder" || true)
 
-    if [ -n "$msg" ]; then
-      conversation+=(-u "$msg")
+    case "$msg" in
+      '')
+        break
+        ;;
 
-      echo -e "${green}You:${reset}"
-      echo "$msg"
-      echo
+      '\f')
+        copy_file_to_clipboard "$(gum file .)"
+        ;;
 
-      echo -e "${green}GPT:${reset}"
-      gpt --no-cache "${conversation[@]}" | tee "$tmp"
+      *)
+        conversation+=(-u "$msg")
 
-      conversation+=(-s "$(cat "$tmp")")
+        echo -e "${green}You:${reset}"
+        echo "$msg"
+        echo
 
-      save_conversation
-    else
-      break
-    fi
+        echo -e "${green}GPT:${reset}"
+        gpt --no-cache "${conversation[@]}" | tee "$tmp"
+
+        conversation+=(-s "$(cat "$tmp")")
+
+        save_conversation
+        ;;
+    esac
   done
 }
 
@@ -167,7 +193,7 @@ menu() {
   local choice
 
   while true; do
-    choice=$(gum choose --ordered "New conversation" "Load conversation" "Exit")
+    choice=$(gum choose --ordered "New conversation" "Load conversation" "Exit (escape)")
 
     case "$choice" in
       "New conversation")
