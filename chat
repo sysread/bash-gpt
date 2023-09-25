@@ -245,7 +245,12 @@ converse() {
 new_conversation="New conversation"
 load_conversation="Load conversation"
 quit="Quit (escape)"
-choices=("$new_conversation" "$load_conversation" "$quit")
+
+choices=(
+  "$new_conversation"
+  "$load_conversation"
+  "$quit"
+)
 
 while true; do
   case "$(gum choose --ordered "${choices[@]}")" in
