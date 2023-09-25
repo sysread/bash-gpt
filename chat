@@ -89,9 +89,7 @@ restore_conversation() {
   while IFS= read -r line; do
     # Skip the title line
     if [[ "$line" == "Title:"* ]]; then
-      echo "BEFORE: $title"
       title="${line#*: }"
-      echo "AFTER: $title"
 
     # Detect prefix (either User: or System:) in the line
     elif [[ "$line" == "User:"* ]] || [[ "$line" == "System:"* ]]; then
@@ -122,13 +120,17 @@ restore_conversation() {
   fi
 }
 
+print_conversation_title() {
+  echo -e "${green}Conversation:${reset} $title"
+  echo -e "${green}----------${reset}"
+  echo
+}
+
 repeat_conversation() {
   local prefix
   local msg
 
-  echo -e "${green}Conversation:${reset} $title"
-  echo -e "${green}----------${reset}"
-  echo
+  print_conversation_title
 
   for ((i = 0; i < ${#conversation[@]}; i += 2)); do
     msg="${conversation[i + 1]}"
@@ -230,6 +232,7 @@ choices=("$new_conversation" "$load_conversation" "$quit")
 while true; do
   case "$(gum choose --ordered "${choices[@]}")" in
     "$new_conversation")
+      print_conversation_title
       converse
       ;;
 
