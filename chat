@@ -212,30 +212,28 @@ converse() {
   done
 }
 
-menu() {
-  local new_conversation="New conversation"
-  local load_conversation="Load conversation"
-  local quit="Quit (escape)"
-  local choices=("$new_conversation" "$load_conversation" "$quit")
-  local choice
+# ------------------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------------------
+new_conversation="New conversation"
+load_conversation="Load conversation"
+quit="Quit (escape)"
+choices=("$new_conversation" "$load_conversation" "$quit")
 
-  while true; do
-    case "$(gum choose --ordered "${choices[@]}")" in
-      "$new_conversation")
-        converse
-        ;;
+while true; do
+  case "$(gum choose --ordered "${choices[@]}")" in
+    "$new_conversation")
+      converse
+      ;;
 
-      "$load_conversation")
-        select_conversation
-        repeat_conversation
-        converse
-        ;;
+    "$load_conversation")
+      select_conversation
+      repeat_conversation
+      converse
+      ;;
 
-      "$quit" | "")
-        return 0
-        ;;
-    esac
-  done
-}
-
-menu
+    "$quit" | "")
+      exit 0
+      ;;
+  esac
+done
