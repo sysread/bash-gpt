@@ -96,55 +96,6 @@ restore_conversation() {
   fi
 }
 
-#restore_conversation() {
-#  local current_prefix=""
-#  local current_message=""
-#
-#  conversation_file="$1"
-#  conversation=()
-#
-#  if [[ ! -e "$conversation_file" ]]; then
-#    echo >&2 "Conversation file does not exist: $conversation_file"
-#    exit 1
-#  fi
-#
-#  while IFS= read -r line; do
-#    # Skip the title line
-#    [[ "$line" == "Title:"* ]] && continue
-#
-#    # Detect prefix (either User: or System:) in the line
-#    if [[ "$line" == "User:"* ]]; then
-#      # If we were collecting a message, add it to the array
-#      if [ -n "$current_message" ]; then
-#        conversation+=("$current_prefix" "$current_message")
-#      fi
-#
-#      # Set new prefix and clear the current message
-#      current_prefix="-u"
-#      current_message="${line#User: }"
-#
-#    elif [[ "$line" == "System:"* ]]; then
-#      # If we were collecting a message, add it to the array
-#      if [ -n "$current_message" ]; then
-#        conversation+=("$current_prefix" "$current_message")
-#      fi
-#
-#      # Set new prefix and clear the current message
-#      current_prefix="-s"
-#      current_message="${line#System: }"
-#
-#    else
-#      # Append to the current message
-#      current_message+=$'\n'"$line"
-#    fi
-#  done < "$conversation_file"
-#
-#  # Add the last message to the array if it exists
-#  if [ -n "$current_message" ]; then
-#    conversation+=("$current_prefix" "$current_message")
-#  fi
-#}
-
 repeat_conversation() {
   local prefix
   local msg
