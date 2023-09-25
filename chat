@@ -231,7 +231,7 @@ menu() {
         converse
         ;;
 
-      "$quit")
+      "$quit" | "")
         return 0
         ;;
     esac
