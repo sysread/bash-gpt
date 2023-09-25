@@ -2,18 +2,41 @@
 
 set -eu -o pipefail
 
+# ------------------------------------------------------------------------------
+# Global variables
+# ------------------------------------------------------------------------------
 green="\033[32m"
 reset="\033[0m"
 
 conversations_dir="$HOME/.gpt/conversations"
-
-mkdir -p "$conversations_dir"
-
 conversation_file="$conversations_dir/$(date +%s).txt"
 
 conversation=()
 tmp=$(mktemp)
 
+# Ensure the conversations directory exists
+mkdir -p "$conversations_dir"
+
+# ------------------------------------------------------------------------------
+# Check for required tools and environment variables
+# ------------------------------------------------------------------------------
+if ! command gpt --help &> /dev/null; then
+  echo >&2 "Error: gpt is not installed or is not on your PATH"
+  exit 1
+fi
+
+if ! command gum --help &> /dev/null; then
+  echo >&2 "Error: gum is not installed or is not on your PATH"
+  echo >&2 "See https://github.com/charmbracelet/gum for installation instructions"
+  echo >&2 "Or just 'brew install gum' on macOS (with homebrew, obv)"
+  exit 1
+fi
+
+gpt --check
+
+# ------------------------------------------------------------------------------
+# Functions
+# ------------------------------------------------------------------------------
 serialize_conversation() {
   local output=""
 
@@ -190,23 +213,25 @@ converse() {
 }
 
 menu() {
+  local new_conversation="New conversation"
+  local load_conversation="Load conversation"
+  local quit="Quit (escape)"
+  local choices=("$new_conversation" "$load_conversation" "$quit")
   local choice
 
   while true; do
-    choice=$(gum choose --ordered "New conversation" "Load conversation" "Exit (escape)")
-
-    case "$choice" in
-      "New conversation")
+    case "$(gum choose --ordered "${choices[@]}")" in
+      "$new_conversation")
         converse
         ;;
 
-      "Load conversation")
+      "$load_conversation")
         select_conversation
         repeat_conversation
         converse
         ;;
 
-      "Exit")
+      "$quit")
         return 0
         ;;
     esac
