@@ -3,24 +3,6 @@
 set -eu -o pipefail
 
 # ------------------------------------------------------------------------------
-# Check for required tools and environment variables
-# ------------------------------------------------------------------------------
-if ! command -v curl &> /dev/null; then
-  echo >&2 "Error: curl is not installed."
-  exit 1
-fi
-
-if ! command -v jq &> /dev/null; then
-  echo >&2 "Error: jq is not installed."
-  exit 1
-fi
-
-if [ -z "${OPENAI_API_KEY:-}" ]; then
-  echo >&2 "Error: OPENAI_API_KEY is not set in the environment."
-  exit 1
-fi
-
-# ------------------------------------------------------------------------------
 # Global variables
 # ------------------------------------------------------------------------------
 PROMPTS=()
@@ -56,6 +38,7 @@ Options:
   --clear     | -c    clear the cache for the current prompt
   --clear-all         clear the cache for all prompts
   --no-cache          do not use the cache
+  --check             check for required tools and environment variables
 
 Environmental variables:
 
@@ -70,6 +53,23 @@ Examples:
 EOL
 
   exit "$exit_code"
+}
+
+validate_env() {
+  if ! command -v curl &> /dev/null; then
+    echo >&2 "Error: curl is not installed."
+    exit 1
+  fi
+
+  if ! command -v jq &> /dev/null; then
+    echo >&2 "Error: jq is not installed."
+    exit 1
+  fi
+
+  if [ -z "${OPENAI_API_KEY:-}" ]; then
+    echo >&2 "Error: OPENAI_API_KEY is not set in the environment."
+    exit 1
+  fi
 }
 
 cache_key() {
@@ -198,6 +198,11 @@ while (("$#")); do
       shift
       ;;
 
+    --check)
+      validate_env
+      exit 0
+      ;;
+
     *)
       echo >&2 "Error: unknown argument '$1'"
       usage 1
@@ -208,6 +213,8 @@ done
 # ------------------------------------------------------------------------------
 # Main logic
 # ------------------------------------------------------------------------------
+validate_env
+
 cache_dir="/tmp/completions.cache"
 cache_key=$(cache_key)
 cache_file="$cache_dir/$cache_key"
