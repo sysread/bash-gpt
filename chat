@@ -164,10 +164,15 @@ select_conversation() {
   local choice
   local file
 
-  choice=$(list_conversations | gum filter --fuzzy --sort)
-  file=$(find "$conversations_dir" -name "*.txt" -exec grep -l "^Title: $choice" {} \;)
+  choice=$(list_conversations | gum filter --fuzzy --sort || true)
 
-  restore_conversation "$file"
+  if [ -n "$choice" ]; then
+    file=$(find "$conversations_dir" -name "*.txt" -exec grep -l "^Title: $choice" {} \;)
+    restore_conversation "$file"
+    return 0
+  fi
+
+  return 1
 }
 
 copy_file_to_clipboard() {
@@ -250,9 +255,10 @@ while true; do
       ;;
 
     "$load_conversation")
-      select_conversation
-      repeat_conversation
-      converse
+      if select_conversation; then
+        repeat_conversation
+        converse
+      fi
       ;;
 
     "$quit" | "")
