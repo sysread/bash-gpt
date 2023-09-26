@@ -150,8 +150,8 @@ repeat_conversation() {
 list_conversations() {
   local filename
 
-  #for filename in "$conversations_dir"/*.txt; do
-  for filename in $(ls -t "$conversations_dir"/*.txt); do
+  # shellcheck disable=SC2045
+  for filename in $(ls -1t "$conversations_dir"/*.txt); do
     if [[ -f "$filename" ]]; then
       awk '/^Title: / { print substr($0, 8); exit }' "$filename"
     fi
