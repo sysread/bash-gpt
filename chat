@@ -65,11 +65,15 @@ serialize_conversation() {
   echo "$output"
 }
 
+update_title() {
+  title=$(gpt -u "In 10 words or less summarize this text: $(serialize_conversation)")
+}
+
 save_conversation() {
   local convo
 
   convo=$(serialize_conversation)
-  title=$(gpt -u "In 10 or fewer words, summarize this text: $convo")
+  update_title
 
   echo "Title: $title" > "$conversation_file"
   echo -e "$convo" | sed 's/[[:space:]]*$//' >> "$conversation_file"
@@ -121,17 +125,9 @@ restore_conversation() {
   fi
 }
 
-print_conversation_title() {
-  echo -e "${green}Conversation:${reset} $title"
-  echo -e "${green}----------${reset}"
-  echo
-}
-
 repeat_conversation() {
   local prefix
   local msg
-
-  print_conversation_title
 
   for ((i = 0; i < ${#conversation[@]}; i += 2)); do
     msg="${conversation[i + 1]}"
@@ -154,7 +150,8 @@ repeat_conversation() {
 list_conversations() {
   local filename
 
-  for filename in "$conversations_dir"/*.txt; do
+  #for filename in "$conversations_dir"/*.txt; do
+  for filename in $(ls -t "$conversations_dir"/*.txt); do
     if [[ -f "$filename" ]]; then
       awk '/^Title: / { print substr($0, 8); exit }' "$filename"
     fi
@@ -165,7 +162,14 @@ select_conversation() {
   local choice
   local file
 
-  choice=$(list_conversations | gum filter --sort || true)
+  choice=$(
+    list_conversations \
+      | gum filter \
+        --header "Conversation history" \
+        --placeholder "Search" \
+        --no-fuzzy \
+      || true
+  )
 
   if [ -n "$choice" ]; then
     file=$(find "$conversations_dir" -name "*.txt" -exec grep -l "^Title: $choice" {} \;)
@@ -176,42 +180,38 @@ select_conversation() {
   return 1
 }
 
-copy_file_to_clipboard() {
-  local file_path="$1"
+attach_file() {
+  local filepath
+  local filename
+  local instruction
 
-  case "$(uname)" in
-    Darwin)
-      if command -v pbcopy > /dev/null; then
-        pbcopy < "$file_path"
-      else
-        echo >&2 "pbcopy is not installed"
-        exit 1
-      fi
-      ;;
+  filepath=$(gum file .)
+  filename=$(basename "$filepath")
 
-    Linux)
-      if command -v xclip > /dev/null; then
-        xclip -selection clipboard < "$file_path"
-      elif command -v xsel > /dev/null; then
-        xsel -b < "$file_path"
-      else
-        echo >&2 "xclip or xsel is not installed"
-        exit 1
-      fi
-      ;;
+  instruction=$(
+    gum input \
+      --char-limit 0 \
+      --width 100 \
+      --prompt "Prompt: " \
+      --value "Attached is the content of $filename for your review"
+  )
 
-    *)
-      echo >&2 "copy file not implemented for $(uname)"
-      exit 1
-      ;;
-  esac
+  conversation+=(-u "$instruction" -u "$(cat "$filepath")")
 }
 
 converse() {
-  local placeholder="ctrl-d submits | esc cancels | send \\f to copy a file to clipboard"
+  local placeholder="ctrl-d submits | esc cancels | send \\f to attach a file"
 
   while true; do
-    msg=$(gum write --width 100 --height 20 --char-limit 0 --placeholder "$placeholder" || true)
+    msg=$(
+      gum write \
+        --width 100 \
+        --height 20 \
+        --char-limit 0 \
+        --placeholder "$placeholder" \
+        --header "$title" \
+        || true
+    )
 
     case "$msg" in
       '')
@@ -219,20 +219,20 @@ converse() {
         ;;
 
       '\f')
-        copy_file_to_clipboard "$(gum file .)"
+        attach_file
         ;;
 
       *)
         conversation+=(-u "$msg")
 
-        echo -e "${green}You:${reset}\n$msg"
+        echo -e "${green}You:${reset}\n$msg\n"
         echo -e "${green}GPT:${reset}"
 
         # Initially display gpt's output as it arrives
         gpt --no-cache "${conversation[@]}" | tee "$tmp"
 
         conversation+=(-s "$(cat "$tmp")")
-        save_conversation &
+        save_conversation
         ;;
     esac
   done
@@ -252,15 +252,18 @@ choices=(
 )
 
 while true; do
-  case "$(gum choose --ordered "${choices[@]}")" in
+  clear
+
+  case "$(gum choose --header "BashGPT" --ordered "${choices[@]}")" in
     "$new_conversation")
+      clear
       title="New conversation"
-      print_conversation_title
       converse
       ;;
 
     "$load_conversation")
       if select_conversation; then
+        clear
         repeat_conversation
         converse
       fi
@@ -271,4 +274,5 @@ while true; do
 
       ;;
   esac
+
 done
