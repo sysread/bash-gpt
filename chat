@@ -21,11 +21,6 @@ mkdir -p "$conversations_dir"
 # ------------------------------------------------------------------------------
 # Check for required tools and environment variables
 # ------------------------------------------------------------------------------
-if ! command tput -V &> /dev/null; then
-  echo >&2 "Error: tput is not installed or is not on your PATH"
-  exit 1
-fi
-
 if ! command gpt --help &> /dev/null; then
   echo >&2 "Error: gpt is not installed or is not on your PATH"
   echo >&2 "See https://github.com/sysread/bash-gpt for installation instructions"
