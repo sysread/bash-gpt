@@ -18,6 +18,14 @@ Provides a command line interface to have conversational interactions similar
 to ChatGPT from the command line, with a searchable conversation history.
 Simply execute `chat` and follow the menu prompts to start a conversation.
 
+## `utils`
+
+Library of small utility functions and aliases:
+
+  - `code <prompt>` - generate code snippets without a blog entry about how to use them
+  - `image <prompt> [<size>] > image.png` - generate an image
+  - `re-image <source-file> <prompt> > new-image.png` - modify an image
+
 # Dependencies
 
 - [`curl`](https://curl.se/)

@@ -23,14 +23,14 @@ mkdir -p "$conversations_dir"
 # ------------------------------------------------------------------------------
 if ! command gpt --help &> /dev/null; then
   echo >&2 "Error: gpt is not installed or is not on your PATH"
-  echo >&2 "See https://github.com/sysread/bash-gpt for installation instructions"
+  echo >&2 "  - See https://github.com/sysread/bash-gpt for installation instructions"
   exit 1
 fi
 
 if ! command gum --help &> /dev/null; then
   echo >&2 "Error: gum is not installed or is not on your PATH"
-  echo >&2 "See https://github.com/charmbracelet/gum for installation instructions"
-  echo >&2 "Or just 'brew install gum' on macOS (with homebrew, obv)"
+  echo >&2 "  - See https://github.com/charmbracelet/gum for installation instructions"
+  echo >&2 "  - Or just 'brew install gum' on macOS (with homebrew, obv)"
   exit 1
 fi
 
