@@ -48,6 +48,19 @@ git clone https://github.com/sysread/bash-gpt
 export PATH="$PATH:/path/to/bash-gpt"
 ```
 
+## Utils
+
+To use the utilities in `utils`, first download it:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/sysread/bash-gpt/main/utils -o /usr/local/lib/bash-gpt-utils
+```
+
+Then add it to your `.bashrc` or `.bash_profile`:
+```bash
+echo 'source /usr/local/lib/bash-gpt-utils' >> ~/.bashrc
+```
+
 # Environment variables
 
 - `OPENAI_API_KEY` - your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
