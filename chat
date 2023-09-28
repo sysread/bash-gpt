@@ -66,14 +66,15 @@ serialize_conversation() {
 }
 
 update_title() {
-  title=$(gpt -u "In 10 words or less summarize this text: $(serialize_conversation)")
+  serialized_conversation="$1"
+  title=$(OPENAI_MODEL="gpt-3.5-turbo-16k" gpt -u "In 10 words or less summarize this text: $serialized_conversation")
 }
 
 save_conversation() {
   local convo
 
   convo=$(serialize_conversation)
-  update_title
+  update_title "$convo"
 
   echo "Title: $title" > "$conversation_file"
   echo -e "$convo" | sed 's/[[:space:]]*$//' >> "$conversation_file"
@@ -254,7 +255,7 @@ choices=(
 while true; do
   clear
 
-  case "$(gum choose --header "BashGPT" --ordered "${choices[@]}")" in
+  case "$(gum choose --height 30 --header "BashGPT" --ordered "${choices[@]}")" in
     "$new_conversation")
       clear
       title="New conversation"
