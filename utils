@@ -1,17 +1,5 @@
 #!/usr/bin/env bash
 
-code() {
-  if [ -z "$*" ]; then
-    echo "usage: code <prompt>" >&2
-    return 1
-  fi
-
-  gpt -s 'you are a programming assistant' \
-    -u 'respond ONLY in code and code comments, no explanation' \
-    -u "$@" \
-    | awk '/^```[a-zA-Z0-9_-]*$/ {flag=!flag; next} flag {print}'
-}
-
 image() {
   if [ -z "$*" ]; then
     echo "usage: image <prompt> [<size>]" >&2

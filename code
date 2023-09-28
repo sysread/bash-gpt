@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+
+set -eu -o pipefail
+
+if ! command gpt --help &> /dev/null; then
+  echo >&2 "Error: gpt is not installed or is not on your PATH"
+  echo >&2 "  - See https://github.com/sysread/bash-gpt for installation instructions"
+  exit 1
+fi
+
+usage() {
+  local exit_code="${1:-0}"
+  local usage=""
+
+  cat << 'EOF'
+
+usage: code --language <language> --code <code> --prompt <prompt>
+
+  -h, --help                 Display this help message
+  -p, --prompt <prompt>      The instruction to code
+  -l, --language <language>  Optional; the programming language to code in
+  -c, --code <code>          Optional; the code to start with
+
+EOF
+
+  exit "$exit_code"
+}
+
+PROMPT=""
+ARGS=()
+
+while (("$#")); do
+  case "$1" in
+    --language | --lang | -l)
+      ARGS+=(-u "programming language: $2")
+      shift 2
+      ;;
+
+    --code | -c)
+      ARGS+=(-u "starting code: $2")
+      shift 2
+      ;;
+
+    --prompt | -p)
+      shift
+      PROMPT="$*"
+      break
+      ;;
+
+    *)
+      echo >&2 "error: unrecognized option: $1"
+      usage 1
+      ;;
+  esac
+done
+
+if [ -z "$PROMPT" ]; then
+  echo "error: a prompt is required"
+  usage 1
+fi
+
+gpt -s 'you are an expert programming assistant' \
+  -u 'respond ONLY in code and code comments, no explanation' \
+  "${ARGS[@]}" \
+  -u "$PROMPT" \
+  | awk '/^```[a-zA-Z0-9_-]*$/ {flag=!flag; next} flag {print}'
