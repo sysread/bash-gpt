@@ -10,7 +10,6 @@ fi
 
 usage() {
   local exit_code="${1:-0}"
-  local usage=""
 
   cat << 'EOF'
 
