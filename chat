@@ -88,18 +88,8 @@ serialize_conversation() {
 }
 
 update_title() {
-  local serialized_conversation="$1"
-  local temp_file
-
-  temp_file=$(mktemp)
-
-  if OPENAI_MODEL="gpt-3.5-turbo-16k" gpt -u "In 10 words or less summarize this text: $serialized_conversation" > "$temp_file"; then
-    TITLE=$(cat "$temp_file")
-  else
-    echo >&2 "Error: Failed to update title"
-  fi
-
-  rm -f "$temp_file"
+  serialized_conversation="$1"
+  TITLE=$(OPENAI_MODEL="gpt-3.5-turbo-16k" gpt -u "In 10 words or less summarize this text: $serialized_conversation")
 }
 
 save_conversation() {
