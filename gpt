@@ -73,7 +73,15 @@ validate_env() {
 }
 
 cache_key() {
-  echo -n "${OPTIONS[*]}${SYSTEM_PROMPTS[*]}${USER_PROMPTS[*]}${PROMPTS[*]}" | sha256sum | awk '{print $1}'
+  local sorted_options sorted_system_prompts sorted_user_prompts sorted_prompts
+
+  IFS=$'\n' mapfile -t sorted_options < <(sort <<< "${OPTIONS[*]}")
+  IFS=$'\n' mapfile -t sorted_system_prompts < <(sort <<< "${SYSTEM_PROMPTS[*]}")
+  IFS=$'\n' mapfile -t sorted_user_prompts < <(sort <<< "${USER_PROMPTS[*]}")
+  IFS=$'\n' mapfile -t sorted_prompts < <(sort <<< "${PROMPTS[*]}")
+
+  echo -n "${sorted_options[*]}${sorted_system_prompts[*]}${sorted_user_prompts[*]}${sorted_prompts[*]}" \
+    | sha256sum | awk '{print $1}'
 }
 
 build_payload() {
