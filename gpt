@@ -16,7 +16,7 @@ CLEAR_CACHE=false
 CLEAR_CACHE_ALL=false
 NO_CACHE=false
 
-DEBUG="${DEBUG:-false}"
+BASHGPT_DEBUG="${BASHGPT_DEBUG:-false}"
 GREEN="\033[32m"
 RESET="\033[0m"
 
@@ -128,7 +128,7 @@ inspect() {
   local line
 
   while IFS= read -r line; do
-    if [ "$DEBUG" = "true" ]; then
+    if [ "$BASHGPT_DEBUG" = "true" ]; then
       echo >&2 -e "${GREEN}inspect>${RESET} ${line}"
     fi
 
