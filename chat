@@ -6,19 +6,19 @@ set -eu -o pipefail
 # Global variables
 # ------------------------------------------------------------------------------
 
-red="\033[31m"
-green="\033[32m"
-reset="\033[0m"
+RED="\033[31m"
+GREEN="\033[32m"
+RESET="\033[0m"
 
-conversations_dir="${BASHGPT_CONVERSATION_HISTORY_DIR:-$HOME/.gpt/conversations}"
-conversation_file="$conversations_dir/$(date +%s).txt"
+CONVERSATIONS_DIR="${BASHGPT_CONVERSATION_HISTORY_DIR:-$HOME/.gpt/conversations}"
+CONVERSATION_FILE="$CONVERSATIONS_DIR/$(date +%s).txt"
 
-title="New conversation"
-conversation=()
-tmp=$(mktemp)
+TITLE="New conversation"
+CONVERSATION=()
+CONVERSATION_TMP=$(mktemp)
 
 # Ensure the conversations directory exists
-mkdir -p "$conversations_dir"
+mkdir -p "$CONVERSATIONS_DIR"
 
 # ------------------------------------------------------------------------------
 # Check for required tools and environment variables
@@ -64,11 +64,11 @@ EOL
 serialize_conversation() {
   local output=""
 
-  for ((i = 0; i < ${#conversation[@]}; i += 2)); do
+  for ((i = 0; i < ${#CONVERSATION[@]}; i += 2)); do
     local prefix
-    local msg="${conversation[i + 1]}"
+    local msg="${CONVERSATION[i + 1]}"
 
-    case "${conversation[i]}" in
+    case "${CONVERSATION[i]}" in
       -u)
         prefix="User"
         ;;
@@ -76,7 +76,7 @@ serialize_conversation() {
         prefix="System"
         ;;
       *)
-        echo >&2 "Unknown type: ${conversation[i]}"
+        echo >&2 "Unknown type: ${CONVERSATION[i]}"
         exit 1
         ;;
     esac
@@ -89,7 +89,7 @@ serialize_conversation() {
 
 update_title() {
   serialized_conversation="$1"
-  title=$(OPENAI_MODEL="gpt-3.5-turbo-16k" gpt -u "In 10 words or less summarize this text: $serialized_conversation")
+  TITLE=$(OPENAI_MODEL="gpt-3.5-turbo-16k" gpt -u "In 10 words or less summarize this text: $serialized_conversation")
 }
 
 save_conversation() {
@@ -98,26 +98,26 @@ save_conversation() {
   convo=$(serialize_conversation)
   update_title "$convo"
 
-  echo "Title: $title" > "$conversation_file"
-  echo -e "$convo" | sed 's/[[:space:]]*$//' >> "$conversation_file"
+  echo "Title: $TITLE" > "$CONVERSATION_FILE"
+  echo -e "$convo" | sed 's/[[:space:]]*$//' >> "$CONVERSATION_FILE"
 }
 
 restore_conversation() {
   local current_prefix=""
   local current_message=""
 
-  conversation_file="$1"
-  conversation=()
+  CONVERSATION_FILE="$1"
+  CONVERSATION=()
 
-  if [[ ! -e "$conversation_file" ]]; then
-    echo >&2 "Conversation file does not exist: $conversation_file"
+  if [[ ! -e "$CONVERSATION_FILE" ]]; then
+    echo >&2 "Conversation file does not exist: $CONVERSATION_FILE"
     exit 1
   fi
 
   while IFS= read -r line; do
     # Skip the title line
     if [[ "$line" == "Title:"* ]]; then
-      title="${line#*: }"
+      TITLE="${line#*: }"
 
     # Detect prefix (either User: or System:) in the line
     elif [[ "$line" == "User:"* ]] || [[ "$line" == "System:"* ]]; then
@@ -126,7 +126,7 @@ restore_conversation() {
 
       # If we were collecting a message, add it to the array
       if [ -n "$current_message" ]; then
-        conversation+=("$current_prefix" "$current_message")
+        CONVERSATION+=("$current_prefix" "$current_message")
       fi
 
       # Set new prefix and clear the current message
@@ -137,14 +137,14 @@ restore_conversation() {
       # Append to the current message
       current_message+=$'\n'"$line"
     fi
-  done < "$conversation_file"
+  done < "$CONVERSATION_FILE"
 
   # Remove trailing whitespace from last message
   current_message=$(echo -n "$current_message" | sed 's/[[:space:]]*$//')
 
   # Add the last message to the array if it exists
   if [ -n "$current_message" ]; then
-    conversation+=("$current_prefix" "$current_message")
+    CONVERSATION+=("$current_prefix" "$current_message")
   fi
 }
 
@@ -152,15 +152,15 @@ repeat_conversation() {
   local prefix
   local msg
 
-  for ((i = 0; i < ${#conversation[@]}; i += 2)); do
-    msg="${conversation[i + 1]}"
+  for ((i = 0; i < ${#CONVERSATION[@]}; i += 2)); do
+    msg="${CONVERSATION[i + 1]}"
 
-    case "${conversation[i]}" in
+    case "${CONVERSATION[i]}" in
       -u)
-        prefix="${green}You:${reset}"
+        prefix="${GREEN}You:${RESET}"
         ;;
       -s)
-        prefix="${green}GPT:${reset}"
+        prefix="${GREEN}GPT:${RESET}"
         ;;
     esac
 
@@ -171,14 +171,12 @@ repeat_conversation() {
 }
 
 list_conversations() {
-  local filename
-
-  # shellcheck disable=SC2045
-  for filename in $(ls -1t "$conversations_dir"/*.txt 2> /dev/null); do
+  while IFS= read -r filename; do
     if [[ -f "$filename" ]]; then
       awk '/^Title: / { print substr($0, 8); exit }' "$filename"
     fi
-  done
+  done < <(find "$CONVERSATIONS_DIR" -type f -name '*.txt' | xargs -I {} stat -f "%m %N" {} \
+    | sort -rn | cut -d' ' -f2-)
 }
 
 select_conversation() {
@@ -189,7 +187,7 @@ select_conversation() {
   options=$(list_conversations)
 
   if [[ -z "$options" ]]; then
-    echo >&2 -e "${red}No conversation history found${reset}"
+    echo >&2 -e "${RED}No conversation history found${RESET}"
     echo >&2 "Press enter to continue"
     read -r
 
@@ -205,7 +203,7 @@ select_conversation() {
     )
 
     if [ -n "$choice" ]; then
-      file=$(find "$conversations_dir" -name "*.txt" -exec grep -l "^Title: $choice" {} \;)
+      file=$(find "$CONVERSATIONS_DIR" -name "*.txt" -exec grep -l "^Title: $choice" {} \;)
       restore_conversation "$file"
       return 0
     fi
@@ -228,7 +226,7 @@ attach_file() {
       --value "Attached is the content of $filename for your review"
   )
 
-  conversation+=(-u "$instruction" -u "$(cat "$filepath")")
+  CONVERSATION+=(-u "$instruction" -u "$(cat "$filepath")")
 }
 
 converse() {
@@ -241,7 +239,7 @@ converse() {
         --height 20 \
         --char-limit 0 \
         --placeholder "$placeholder" \
-        --header "$title" \
+        --header "$TITLE" \
         || true
     )
 
@@ -255,15 +253,15 @@ converse() {
         ;;
 
       *)
-        conversation+=(-u "$msg")
+        CONVERSATION+=(-u "$msg")
 
-        echo -e "${green}You:${reset}\n$msg\n"
-        echo -e "${green}GPT:${reset}"
+        echo -e "${GREEN}You:${RESET}\n$msg\n"
+        echo -e "${GREEN}GPT:${RESET}"
 
         # Initially display gpt's output as it arrives
-        gpt --no-cache "${conversation[@]}" | tee "$tmp"
+        gpt --no-cache "${CONVERSATION[@]}" | tee "$CONVERSATION_TMP"
 
-        conversation+=(-s "$(cat "$tmp")")
+        CONVERSATION+=(-s "$(cat "$CONVERSATION_TMP")")
         save_conversation
         ;;
     esac
@@ -305,7 +303,7 @@ while true; do
   case "$(gum choose --height 30 --header "BashGPT" --ordered "${choices[@]}")" in
     "$new_conversation")
       clear
-      title="New conversation"
+      TITLE="New conversation"
       converse
       ;;
 
