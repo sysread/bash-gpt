@@ -5,10 +5,12 @@ set -eu -o pipefail
 # ------------------------------------------------------------------------------
 # Global variables
 # ------------------------------------------------------------------------------
+
+red="\033[31m"
 green="\033[32m"
 reset="\033[0m"
 
-conversations_dir="$HOME/.gpt/conversations"
+conversations_dir="${BASHGPT_CONVERSATION_HISTORY_DIR:-$HOME/.gpt/conversations}"
 conversation_file="$conversations_dir/$(date +%s).txt"
 
 title="New conversation"
@@ -39,6 +41,26 @@ gpt --check
 # ------------------------------------------------------------------------------
 # Functions
 # ------------------------------------------------------------------------------
+usage() {
+  local exit_code="${1:-0}"
+
+  cat << EOL
+
+usage: chat [OPTIONS]
+
+Options:
+  --help      | -h                 show help information
+
+Environmental variables:
+
+  OPENAI_API_KEY                   your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
+  OPENAI_MODEL                     the model to use; defaults to gpt-3.5-turbo-16k
+  BASHGPT_CONVERSATION_HISTORY_DIR the directory to store conversation history; defaults to ~/.gpt/conversations
+EOL
+
+  exit "$exit_code"
+}
+
 serialize_conversation() {
   local output=""
 
@@ -152,7 +174,7 @@ list_conversations() {
   local filename
 
   # shellcheck disable=SC2045
-  for filename in $(ls -1t "$conversations_dir"/*.txt); do
+  for filename in $(ls -1t "$conversations_dir"/*.txt 2> /dev/null); do
     if [[ -f "$filename" ]]; then
       awk '/^Title: / { print substr($0, 8); exit }' "$filename"
     fi
@@ -162,23 +184,32 @@ list_conversations() {
 select_conversation() {
   local choice
   local file
+  local options
 
-  choice=$(
-    list_conversations \
-      | gum filter \
-        --header "Conversation history" \
-        --placeholder "Search" \
-        --no-fuzzy \
-      || true
-  )
+  options=$(list_conversations)
 
-  if [ -n "$choice" ]; then
-    file=$(find "$conversations_dir" -name "*.txt" -exec grep -l "^Title: $choice" {} \;)
-    restore_conversation "$file"
-    return 0
+  if [[ -z "$options" ]]; then
+    echo >&2 -e "${red}No conversation history found${reset}"
+    echo >&2 "Press enter to continue"
+    read -r
+
+    return 1
+  else
+    choice=$(
+      echo "$options" \
+        | gum filter \
+          --header "Conversation history" \
+          --placeholder "Search" \
+          --no-fuzzy \
+        || true
+    )
+
+    if [ -n "$choice" ]; then
+      file=$(find "$conversations_dir" -name "*.txt" -exec grep -l "^Title: $choice" {} \;)
+      restore_conversation "$file"
+      return 0
+    fi
   fi
-
-  return 1
 }
 
 attach_file() {
@@ -238,6 +269,22 @@ converse() {
     esac
   done
 }
+
+# ------------------------------------------------------------------------------
+# Argument parsing
+# ------------------------------------------------------------------------------
+while (("$#")); do
+  case "$1" in
+    --help | -h)
+      usage 0
+      ;;
+
+    *)
+      echo >&2 "Error: unknown argument '$1'"
+      usage 1
+      ;;
+  esac
+done
 
 # ------------------------------------------------------------------------------
 # Main
