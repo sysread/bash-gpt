@@ -171,12 +171,17 @@ repeat_conversation() {
 }
 
 list_conversations() {
-  while IFS= read -r filename; do
+  shopt -s nullglob   # Ensure that a glob expands to nothing if there are no matching files
+  shopt -s nocaseglob # Case insensitive matching, remove if not needed
+
+  for filename in "$CONVERSATIONS_DIR"/*.txt; do
     if [[ -f "$filename" ]]; then
       awk '/^Title: / { print substr($0, 8); exit }' "$filename"
     fi
-  done < <(find "$CONVERSATIONS_DIR" -type f -name '*.txt' | xargs -I {} stat -f "%m %N" {} \
-    | sort -rn | cut -d' ' -f2-)
+  done
+
+  shopt -u nullglob   # Unset the nullglob option
+  shopt -u nocaseglob # Unset the nocaseglob option, remove if not needed
 }
 
 select_conversation() {
