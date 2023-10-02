@@ -12,6 +12,7 @@ SYSTEM_PROMPTS=()
 OPTIONS=()
 OPENAI_MODEL="${OPENAI_MODEL:-gpt-3.5-turbo-16k}"
 
+CACHE_DIR="${BASHGPT_CACHE_DIR:-/tmp/completions.cache}"
 CLEAR_CACHE=false
 CLEAR_CACHE_ALL=false
 NO_CACHE=false
@@ -44,6 +45,7 @@ Environmental variables:
 
   OPENAI_API_KEY      your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
   OPENAI_MODEL        the model to use; defaults to gpt-3.5-turbo-16k
+  BASHGPT_CACHE_DIR   the directory to store cached results; defaults to /tmp/completions.cache
 
 Examples:
 
@@ -223,16 +225,15 @@ done
 # ------------------------------------------------------------------------------
 validate_env
 
-cache_dir="/tmp/completions.cache"
 cache_key=$(cache_key)
-cache_file="$cache_dir/$cache_key"
+cache_file="$CACHE_DIR/$cache_key"
 
 # Ensure the cached results directory exists
-mkdir -p "$cache_dir" 2> /dev/null || true
+mkdir -p "$CACHE_DIR" 2> /dev/null || true
 
 # Clear all cached results if --clear-all was set
 if [ "$CLEAR_CACHE_ALL" = "true" ]; then
-  rm -f "$cache_dir"/*
+  rm -f "$CACHE_DIR"/*
 fi
 
 # Clear the cache for this request if --clear was set
@@ -245,7 +246,9 @@ if [ "$NO_CACHE" = "true" ]; then
 elif [ -e "$cache_file" ] && [ -s "$cache_file" ]; then
   cat "$cache_file"
 else
-  get_completion | tee "$cache_file"
+  # Use stdbuf to ensure that the output is not buffered, since get_completion
+  # is not printing by line.
+  get_completion | stdbuf -o0 tee -a "$cache_file"
 fi
 
 echo
