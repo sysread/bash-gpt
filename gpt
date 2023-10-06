@@ -110,7 +110,10 @@ clear_cache_key() {
 }
 
 cache_key() {
-  local sorted_options sorted_system_prompts sorted_user_prompts sorted_prompts
+  local sorted_options
+  local sorted_system_prompts
+  local sorted_user_prompts
+  local sorted_prompts
 
   IFS=$'\n' mapfile -t sorted_options < <(sort <<< "${OPTIONS[*]}")
   IFS=$'\n' mapfile -t sorted_system_prompts < <(sort <<< "${SYSTEM_PROMPTS[*]}")
