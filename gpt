@@ -12,7 +12,7 @@ SYSTEM_PROMPTS=()
 OPTIONS=()
 OPENAI_MODEL="${OPENAI_MODEL:-gpt-3.5-turbo-16k}"
 
-CACHE_DIR="${BASHGPT_CACHE_DIR:-/tmp/completions.cache}"
+CACHE_DIR="${BASHGPT_CACHE_DIR:-/$HOME/.bashgpt_cache}"
 CLEAR_CACHE=false
 CLEAR_CACHE_ALL=false
 NO_CACHE=false
@@ -45,7 +45,7 @@ Environmental variables:
 
   OPENAI_API_KEY      your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
   OPENAI_MODEL        the model to use; defaults to gpt-3.5-turbo-16k
-  BASHGPT_CACHE_DIR   the directory to store cached results; defaults to /tmp/completions.cache
+  BASHGPT_CACHE_DIR   the directory to store cached results; defaults to \$HOME/.bashgpt_cache
 
 Examples:
 
@@ -58,20 +58,55 @@ EOL
 }
 
 validate_env() {
-  if ! command -v curl &> /dev/null; then
-    echo >&2 "Error: curl is not installed."
-    exit 1
-  fi
+  local tools=("curl" "jq" "awk" "sort" "sha256sum" "tee")
+  local cmd
 
-  if ! command -v jq &> /dev/null; then
-    echo >&2 "Error: jq is not installed."
-    exit 1
-  fi
+  for cmd in "${tools[@]}"; do
+    if ! command -v "$cmd" &> /dev/null; then
+      echo >&2 "Error: $cmd is not installed."
+      exit 1
+    fi
+  done
 
   if [ -z "${OPENAI_API_KEY:-}" ]; then
     echo >&2 "Error: OPENAI_API_KEY is not set in the environment."
     exit 1
+  elif [[ ! "$OPENAI_API_KEY" =~ ^sk-[a-zA-Z0-9]{32,64}$ ]]; then
+    echo >&2 "Error: OPENAI_API_KEY is not a valid key."
+    exit 1
   fi
+
+  return 0
+}
+
+make_cache_dir() {
+  mkdir -p "$CACHE_DIR" 2> /dev/null || {
+    echo >&2 "Failed to create cache directory '$CACHE_DIR'"
+    exit 1
+  }
+
+  return 0
+}
+
+clear_cache() {
+  rm -f "$CACHE_DIR"/* || {
+    echo >&2 "Error clearing cache directory '$CACHE_DIR'"
+    exit 1
+  }
+
+  return 0
+}
+
+clear_cache_key() {
+  local cache_key="$1"
+  local cache_file="$CACHE_DIR/$cache_key"
+
+  rm -f "$cache_file" || {
+    echo >&2 "Failed to clear cache for current prompt"
+    exit 1
+  }
+
+  return 0
 }
 
 cache_key() {
@@ -139,6 +174,8 @@ inspect() {
 }
 
 get_completion() {
+  local exit_code
+
   curl -s \
     -N "https://api.openai.com/v1/chat/completions" \
     -H "Content-Type: application/json" \
@@ -162,6 +199,13 @@ get_completion() {
         fi
       fi
     done
+
+  exit_code=$?
+  if [ $exit_code -ne 0 ]; then
+    echo >&2 "Error: curl request failed with exit code $exit_code."
+    exit 1
+  fi
+
 }
 
 # ------------------------------------------------------------------------------
@@ -223,24 +267,28 @@ done
 # ------------------------------------------------------------------------------
 # Main logic
 # ------------------------------------------------------------------------------
+# Validate shell environment and tools
 validate_env
 
-cache_key=$(cache_key)
-cache_file="$CACHE_DIR/$cache_key"
-
-# Ensure the cached results directory exists
-mkdir -p "$CACHE_DIR" 2> /dev/null || true
+# Create the cache directory if it doesn't exist
+make_cache_dir
 
 # Clear all cached results if --clear-all was set
 if [ "$CLEAR_CACHE_ALL" = "true" ]; then
-  rm -f "$CACHE_DIR"/*
+  clear_cache
+  exit 0
 fi
+
+# Build cache key and cache file path
+cache_key=$(cache_key)
+cache_file="$CACHE_DIR/$cache_key"
 
 # Clear the cache for this request if --clear was set
 if [ "$CLEAR_CACHE" = "true" ]; then
-  rm -f "$cache_file"
+  clear_cache_key "$cache_key"
 fi
 
+# Get our completion
 if [ "$NO_CACHE" = "true" ]; then
   get_completion
 elif [ -e "$cache_file" ] && [ -s "$cache_file" ]; then
