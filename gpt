@@ -5,22 +5,21 @@ set -eu -o pipefail
 # ------------------------------------------------------------------------------
 # Global variables
 # ------------------------------------------------------------------------------
+OPENAI_MODEL="${OPENAI_MODEL:-gpt-3.5-turbo-16k}"
+BASHGPT_DEBUG="${BASHGPT_DEBUG:-false}"
+
 PROMPTS=()
 USER_PROMPTS=()
 SYSTEM_PROMPTS=()
+OPTIONS=()
 
 SLURP_STDIN=false
 PAYLOAD_FILE=$(mktemp)
-
-OPTIONS=()
-OPENAI_MODEL="${OPENAI_MODEL:-gpt-3.5-turbo-16k}"
 
 CACHE_DIR="${BASHGPT_CACHE_DIR:-/$HOME/.bashgpt_cache}"
 CLEAR_CACHE=false
 CLEAR_CACHE_ALL=false
 NO_CACHE=false
-
-BASHGPT_DEBUG="${BASHGPT_DEBUG:-false}"
 
 # Ensure that the temp file holding the payload is deleted on exit
 trap 'cleanup' EXIT ERR INT
