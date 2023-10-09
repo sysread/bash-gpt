@@ -18,6 +18,14 @@ Provides a command line interface to have conversational interactions similar
 to ChatGPT from the command line, with a searchable conversation history.
 Simply execute `chat` and follow the menu prompts to start a conversation.
 
+## `cmd`
+
+Generates a command that can be directly executed in your `$SHELL`.
+
+```bash
+cmd list files in the current directory with time stamps
+```
+
 ## `code`
 
 A little wrapper around `gpt` focused on producing code without texty
@@ -49,9 +57,11 @@ Library of small utility functions and aliases:
 2. Ensure that you have write permissions to `/usr/local/bin`
 3. Download to `/usr/local/bin`
 ```bash
-curl -sSL https://raw.githubusercontent.com/sysread/bash-gpt/main/gpt -o /usr/local/bin/gpt && \
-curl -sSL https://raw.githubusercontent.com/sysread/bash-gpt/main/chat -o /usr/local/bin/chat && \
-chmod +x /usr/local/bin/gpt /usr/local/bin/chat
+
+for tool in gpt chat code cmd; do
+  curl -sSL "https://raw.githubusercontent.com/sysread/bash-gpt/main/$tool" -o "/usr/local/bin/$tool" \
+    && chmod +x "/usr/local/bin/$tool"
+done
 ```
 
 ## From repo

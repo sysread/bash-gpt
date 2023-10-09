@@ -30,6 +30,10 @@ ARGS=()
 
 while (("$#")); do
   case "$1" in
+    --help | -h)
+      usage 0
+      ;;
+
     --language | --lang | -l)
       ARGS+=(-u "programming language: $2")
       shift 2
@@ -58,8 +62,17 @@ if [ -z "$PROMPT" ]; then
   usage 1
 fi
 
-gpt -s 'you are an expert programming assistant' \
-  -u 'respond ONLY in code and code comments, no explanation' \
-  "${ARGS[@]}" \
-  -u "$PROMPT" \
-  | awk '/^```[a-zA-Z0-9_-]*$/ {flag=!flag; next} flag {print}'
+#who='you are an expert programming assistant'
+who="you generate programming code completions"
+what='respond ONLY in code and code comments, NO explanation'
+
+# xargs: remove leading and trailing whitespace
+# sed: remove ANSI escape sequences
+response=$(gpt -s "$who" -u "$what" "${ARGS[@]}" -u "$PROMPT" | gum format)
+
+# shellcheck disable=SC2001
+stripped=$(echo "$response" | sed 's/\x1b\[[0-9;]*m//g')                                                  # remove ANSI escape sequences
+stripped=$(echo -e "$stripped" | awk 'BEGIN {RS = ""; ORS = ""} { gsub(/^[\n\t ]*/, "", $0); print $0 }') # remove leading whitespace
+stripped=$(echo -e "$stripped" | awk 'BEGIN {RS = ""; ORS = ""} { gsub(/[\n\t ]*$/, "", $0); print $0 }') # remove trailing whitespace
+
+echo "$stripped"
