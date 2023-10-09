@@ -6,10 +6,6 @@ set -eu -o pipefail
 # Global variables
 # ------------------------------------------------------------------------------
 
-RED="\033[31m"
-GREEN="\033[32m"
-RESET="\033[0m"
-
 CONVERSATIONS_DIR="${BASHGPT_CONVERSATION_HISTORY_DIR:-$HOME/.gpt/conversations}"
 CONVERSATION_FILE="$CONVERSATIONS_DIR/$(date +%s).txt"
 CONVERSATION_TMP=$(mktemp)
@@ -157,14 +153,15 @@ repeat_conversation() {
 
     case "${CONVERSATION[i]}" in
       -u)
-        prefix="${GREEN}You:${RESET}"
+        prefix="$(gum style --foreground="#00FF00" 'You: ')"
         ;;
       -s)
-        prefix="${GREEN}GPT:${RESET}"
+        prefix="$(gum style --foreground="#00FF00" 'GPT: ')"
         ;;
     esac
 
     echo -e "$prefix"
+    echo
     echo "$msg"
     echo
   done
@@ -172,16 +169,29 @@ repeat_conversation() {
 
 list_conversations() {
   shopt -s nullglob   # Ensure that a glob expands to nothing if there are no matching files
-  shopt -s nocaseglob # Case insensitive matching, remove if not needed
+  shopt -s nocaseglob # Case insensitive matching
 
-  for filename in "$CONVERSATIONS_DIR"/*.txt; do
-    if [[ -f "$filename" ]]; then
-      awk '/^Title: / { print substr($0, 8); exit }' "$filename"
+  # Store the filenames and their modification times in an array
+  files_mtime=()
+  for file in "$CONVERSATIONS_DIR"/*.txt; do
+    if [[ -f "$file" ]]; then
+      # Append the modification time and the filename to the array
+      files_mtime+=("$(stat -f "%m %N" "$file")")
     fi
   done
 
+  # Sort the array by the modification times in reverse order
+  IFS=$'\n' files_mtime=($(sort -nr <<< "${files_mtime[*]}"))
+  unset IFS
+
+  # Extract the filenames from the sorted array, and print the title from each file
+  for line in "${files_mtime[@]}"; do
+    file="$(cut -d ' ' -f 2- <<< "$line")"
+    awk '/^Title: / { print substr($0, 8); exit }' "$file"
+  done
+
   shopt -u nullglob   # Unset the nullglob option
-  shopt -u nocaseglob # Unset the nocaseglob option, remove if not needed
+  shopt -u nocaseglob # Unset the nocaseglob option
 }
 
 select_conversation() {
@@ -192,7 +202,7 @@ select_conversation() {
   options=$(list_conversations)
 
   if [[ -z "$options" ]]; then
-    echo >&2 -e "${RED}No conversation history found${RESET}"
+    gum >&2 style --foreground="#FF0000" "No conversation history found"
     echo >&2 "Press enter to continue"
     read -r
 
@@ -236,6 +246,11 @@ attach_file() {
 
 converse() {
   local placeholder="ctrl-d submits | esc cancels | send \\f to attach a file"
+  local you_prefix
+  local gpt_prefix
+
+  you_prefix="$(gum style --foreground="#00FF00" 'You: ')"
+  gpt_prefix="$(gum style --foreground="#00FF00" 'GPT: ')"
 
   while true; do
     msg=$(
@@ -260,10 +275,12 @@ converse() {
       *)
         CONVERSATION+=(-u "$msg")
 
-        echo -e "${GREEN}You:${RESET}\n$msg\n"
-        echo -e "${GREEN}GPT:${RESET}"
+        echo -e "$you_prefix"
+        echo "$msg"
+        echo
 
         # Initially display gpt's output as it arrives
+        echo -e "$gpt_prefix"
         gpt --no-cache "${CONVERSATION[@]}" | tee "$CONVERSATION_TMP"
 
         CONVERSATION+=(-s "$(cat "$CONVERSATION_TMP")")
