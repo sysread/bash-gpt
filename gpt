@@ -21,8 +21,6 @@ CLEAR_CACHE_ALL=false
 NO_CACHE=false
 
 BASHGPT_DEBUG="${BASHGPT_DEBUG:-false}"
-GREEN="\033[32m"
-RESET="\033[0m"
 
 # Ensure that the temp file holding the payload is deleted on exit
 trap 'cleanup' EXIT ERR INT
@@ -141,7 +139,7 @@ inspect() {
 
   while IFS= read -r line; do
     if [ "$BASHGPT_DEBUG" = "true" ]; then
-      echo >&2 -e "${GREEN}inspect>${RESET} ${line}"
+      gum >&2 join "$(gum style --foreground="#00FF00" 'inspect> ')" "$line"
     fi
 
     echo "${line}"
