@@ -337,11 +337,12 @@ if [[ ! -t 0 ]]; then
 
     while IFS= read -r line; do
       USER_PROMPTS+=("$line")
+
+      next_completion
+
+      USER_PROMPTS=("${original[@]}")
     done
 
-    next_completion
-
-    USER_PROMPTS=("${original[@]}")
   fi
 else
   next_completion
