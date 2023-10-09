@@ -226,7 +226,7 @@ get_completion() {
   fi
 }
 
-next_completion() {
+single_completion() {
   # Build cache key and cache file path
   cache_key=$(cache_key)
   cache_file="$CACHE_DIR/$cache_key"
@@ -246,6 +246,22 @@ next_completion() {
     # is not printing by line.
     get_completion | stdbuf -o0 tee -a "$cache_file"
   fi
+}
+
+slurpy_completion() {
+  mapfile -t lines
+  USER_PROMPTS+=("${lines[@]}")
+  single_completion
+}
+
+readliney_completion() {
+  original=("${USER_PROMPTS[@]}")
+
+  while IFS= read -r line; do
+    USER_PROMPTS+=("$line")
+    single_completion
+    USER_PROMPTS=("${original[@]}")
+  done
 }
 
 # ------------------------------------------------------------------------------
@@ -327,25 +343,12 @@ fi
 # Check if there's input from STDIN
 if [[ ! -t 0 ]]; then
   if [ "$SLURP_STDIN" = "true" ]; then
-    mapfile -t lines
-
-    USER_PROMPTS+=("${lines[@]}")
-
-    next_completion
+    slurpy_completion
   else
-    original=("${USER_PROMPTS[@]}")
-
-    while IFS= read -r line; do
-      USER_PROMPTS+=("$line")
-
-      next_completion
-
-      USER_PROMPTS=("${original[@]}")
-    done
-
+    readliney_completion
   fi
 else
-  next_completion
+  single_completion
 fi
 
 echo
