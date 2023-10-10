@@ -13,6 +13,7 @@ USER_PROMPTS=()
 SYSTEM_PROMPTS=()
 OPTIONS=()
 
+READ_STDIN=false
 SLURP_STDIN=false
 PAYLOAD_FILE=$(mktemp)
 
@@ -39,7 +40,8 @@ Options:
   --system    | -s    add a system prompt to the list; can be used multiple times
   --prompt    | -p    add a prompt to the list; can be used multiple times (deprecated; use -u instead)
   --option    | -o    set an openai chat completions API option; can be used multiple times
-  --slurp             read STDIN until EOF and perform a single GPT request with the input;
+  --read      | -r    read prompts from STDIN
+  --slurp             with -r, read STDIN until EOF and perform a single GPT request with the input;
                       if unset, each line of STDIN will result in a new GPT request
   --clear     | -c    clear the cache for the current prompt
   --clear-all         clear the cache for all prompts
@@ -300,6 +302,11 @@ while (("$#")); do
       shift 2
       ;;
 
+    --read | -r)
+      READ_STDIN=true
+      shift
+      ;;
+
     --slurp)
       SLURP_STDIN=true
       shift
@@ -338,7 +345,7 @@ if [ "$CLEAR_CACHE_ALL" = "true" ]; then
 fi
 
 # Check if there's input from STDIN
-if [[ ! -t 0 ]]; then
+if [ "$READ_STDIN" = "true" ] && [[ ! -t 0 ]]; then
   if [ "$SLURP_STDIN" = "true" ]; then
     slurpy_completion
   else

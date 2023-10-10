@@ -5,7 +5,6 @@ set -eu -o pipefail
 # ------------------------------------------------------------------------------
 # Global variables
 # ------------------------------------------------------------------------------
-
 CONVERSATIONS_DIR="${BASHGPT_CONVERSATION_HISTORY_DIR:-$HOME/.gpt/conversations}"
 CONVERSATION_FILE="$CONVERSATIONS_DIR/$(date +%s).txt"
 CONVERSATION_TMP=$(mktemp)
