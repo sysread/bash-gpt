@@ -271,14 +271,9 @@ while (("$#")); do
       usage 0
       ;;
 
-    --clear | -c)
-      CLEAR_CACHE=true
-      shift
-      ;;
-
-    --clear-all)
-      CLEAR_CACHE_ALL=true
-      shift
+    --opt | -o)
+      OPTIONS+=("$2")
+      shift 2
       ;;
 
     --user | -u)
@@ -296,11 +291,6 @@ while (("$#")); do
       shift 2
       ;;
 
-    --opt | -o)
-      OPTIONS+=("$2")
-      shift 2
-      ;;
-
     --read | -r)
       READ_STDIN=true
       shift
@@ -313,6 +303,16 @@ while (("$#")); do
 
     --no-cache)
       NO_CACHE=true
+      shift
+      ;;
+
+    --clear | -c)
+      CLEAR_CACHE=true
+      shift
+      ;;
+
+    --clear-all)
+      CLEAR_CACHE_ALL=true
       shift
       ;;
 
