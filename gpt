@@ -249,7 +249,7 @@ single_completion() {
 
 slurpy_completion() {
   mapfile -t lines
-  USER_PROMPTS+=("${lines[@]}")
+  USER_PROMPTS=("${lines[@]}" "${USER_PROMPTS[@]}")
   single_completion
 }
 
