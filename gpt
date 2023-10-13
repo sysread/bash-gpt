@@ -189,7 +189,6 @@ build_payload() {
 
 get_completion() {
   local exit_code
-  local payload_file
 
   build_payload
 
