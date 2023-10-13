@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+
+set -eu -o pipefail
+
+TEST_CMD="${TEST_CMD:-$(gum input --width 100 --header "Test command" --placeholder "make test")}"
+TEST_TMP=$(mktemp)
+FILES_TMP=$(mktemp)
+ROOT=$(git rev-parse --show-toplevel 2> /dev/null || pwd)
+
+function warn {
+  gum style --foreground="#FF0000" "$@" >&2
+}
+
+function info {
+  gum style --foreground="#00FF00" "$@"
+}
+
+function check_rerun_tests {
+  gum confirm --prompt.foreground="#00FF00" "Would you like to run the tests again?"
+}
+
+function run_tests {
+  set +e                            # temporarily disable exit on error
+  $TEST_CMD 2>&1 | tee "$TEST_TMP"  # run TEST_CMD, display output in real-time, and save to TEST_TMP
+  test_exit_status=${PIPESTATUS[0]} # save the exit status of TEST_CMD
+  set -e                            # re-enable exit on error
+
+  return "$test_exit_status"
+}
+
+function get_fixes {
+  cat "$TEST_TMP" "$FILES_TMP" \
+    | gpt --no-cache --read --slurp -u "analyze the following errors and suggest fixes"
+}
+
+make_relative() {
+  local path absolute_root absolute_path
+  path=$1
+
+  absolute_root=$(
+    cd "$ROOT"
+    pwd -P
+  )
+
+  absolute_path=$(
+    cd "$(dirname "$path")"
+    pwd -P
+  )/$(basename "$path")
+
+  echo "${absolute_path#"$absolute_root"/}"
+}
+
+function relevant_files {
+  local file
+  local matches=()
+
+  # Use grep to find expressions that look like file paths
+  while IFS= read -r file; do
+    if [ -f "$file" ]; then
+      # Convert to absolute path
+      file=$(make_relative "$file")
+
+      if ! git check-ignore "$file" > /dev/null 2>&1; then
+        matches+=("$file")
+      fi
+    fi
+  done < <(grep -oE "(?:\/)?(?:[_a-zA-Z0-9]*\/)*(?:[_a-zA-Z0-9]+)(?:\.[a-zA-Z0-9]*)?" < "$TEST_TMP")
+
+  printf "%s\n" "${matches[@]}" | sort | uniq
+}
+
+function update_relevant_files {
+  # Clear the temporary file
+  echo > "$FILES_TMP"
+
+  # Add the contents of each relevant file to the temporary file, skipping
+  # files that are ignored by git.
+  files=$(relevant_files)
+
+  for file in $files; do
+    # Print file to stdout
+    echo "$file"
+    # Add it to the temporary file for transmission to gpt
+    echo -e "\n\nFile $file:" >> "$FILES_TMP"
+    cat "$file" >> "$FILES_TMP"
+  done
+
+  return 0
+}
+
+while true; do
+  if run_tests; then
+    info "Tests passed successfully!"
+
+    if check_rerun_tests; then
+      continue
+    else
+      exit 0
+    fi
+  else
+    echo '--------------------------------------------------------------------------------'
+    warn "Errors detected!"
+    info "Analyzing:"
+
+    info "  - collecting relevant files"
+    update_relevant_files
+    files=$(relevant_files "$(cat "$TEST_TMP")")
+    for file in $files; do
+      info "    - $file"
+    done
+
+    info "  - analyzing test failures"
+    get_fixes
+
+    check_rerun_tests
+  fi
+done
+
+# Clean up temp files
+rm -f "$TEST_TMP"
+rm -f "$FILES_TMP"

@@ -36,6 +36,12 @@ stack_class=$(code -l python -p 'stack class')
 unit_test=$(code -l python -c "$stack_class" -p 'unit test for this class')
 ```
 
+## `tester`
+
+Runs your unit tests. If they fail, sends the error messages and relevant file
+contents to `gpt` to come up with suggested fixes. Then it will offer to rerun
+your tests to verify the fix.
+
 ## `utils`
 
 Library of small utility functions and aliases:
@@ -58,7 +64,7 @@ Library of small utility functions and aliases:
 3. Download to `/usr/local/bin`
 ```bash
 
-for tool in gpt chat code cmd; do
+for tool in gpt chat code cmd tester; do
   curl -sSL "https://raw.githubusercontent.com/sysread/bash-gpt/main/$tool" -o "/usr/local/bin/$tool" \
     && chmod +x "/usr/local/bin/$tool"
 done
