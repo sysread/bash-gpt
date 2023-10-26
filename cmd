@@ -39,7 +39,8 @@ if [ -z "$*" ]; then
   usage 1
 fi
 
-who="you are a $SHELL shell command generator"
+os=$(uname -s | tr '[:upper:]' '[:lower:]')
+who="you are a $SHELL shell command generator for $os"
 what="respond ONLY with a suitable command that can be directly evaluated in $SHELL, no explanation"
 
 formatted=$(gpt -s "$who" -u "$what" -u "$*" | gum format)
