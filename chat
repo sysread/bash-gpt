@@ -184,6 +184,7 @@ list_conversations() {
   done
 
   # Sort the array by the modification times in reverse order
+  # shellcheck disable=SC2207
   IFS=$'\n' files_mtime=($(sort -nr <<< "${files_mtime[*]}"))
   unset IFS
 
@@ -231,6 +232,7 @@ select_conversation() {
 attach_file() {
   local filepath="${1:-}"
   local filename
+  local file_content
   local instruction
 
   # If no argument provided, use file picker
@@ -254,7 +256,13 @@ attach_file() {
       --value "Attached is the content of the file '$filename' for reference"
   ) || return 0
 
-  CONVERSATION+=(-u "$instruction" -u "$(cat "$filepath")")
+  file_content=$(cat "$filepath")
+
+  CONVERSATION+=(-u "$instruction" -u "
+\`\`\`
+$file_content
+\`\`\`
+")
 }
 
 converse() {
