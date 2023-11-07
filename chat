@@ -166,9 +166,7 @@ repeat_conversation() {
     esac
 
     echo -e "$prefix"
-    echo
-    echo "$msg"
-    echo
+    echo "$msg" | gum format
   done
 }
 
@@ -274,7 +272,8 @@ converse() {
         --height 20 \
         --char-limit 0 \
         --placeholder "$placeholder" \
-        --header "$TITLE" \
+        --header "> $TITLE" \
+        --header.foreground="#00FF00" \
         || true
     )
 
@@ -308,6 +307,11 @@ converse() {
 
         CONVERSATION+=(-s "$(cat "$CONVERSATION_TMP")")
         save_conversation
+
+        replay=$(repeat_conversation)
+        clear
+        echo -e "$replay"
+        echo
         ;;
     esac
   done
