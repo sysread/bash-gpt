@@ -10,6 +10,7 @@ CONVERSATION_FILE="$CONVERSATIONS_DIR/$(date +%s).txt"
 CONVERSATION_TMP=$(mktemp)
 
 TITLE="New conversation"
+TITLE_SET=false
 declare -a CONVERSATION=()
 
 # Ensure the conversations directory exists
@@ -83,8 +84,12 @@ serialize_conversation() {
 }
 
 update_title() {
-  serialized_conversation="$1"
-  TITLE=$(OPENAI_MODEL="gpt-3.5-turbo-16k" gpt -u "In 10 words or less summarize this text: $serialized_conversation")
+  # Only set the title if it hasn't been set yet
+  if [ "$TITLE_SET" = false ]; then
+    local serialized_conversation="$1"
+    TITLE=$(OPENAI_MODEL="gpt-3.5-turbo-16k" gpt -u "In 10 words or less summarize this text: $serialized_conversation")
+    TITLE_SET=true
+  fi
 }
 
 save_conversation() {
@@ -113,6 +118,7 @@ restore_conversation() {
     # Skip the title line
     if [[ "$line" == "Title:"* ]]; then
       TITLE="${line#*: }"
+      TITLE_SET=true
 
     # Detect prefix (either User: or System:) in the line
     elif [[ "$line" == "User:"* ]] || [[ "$line" == "System:"* ]]; then
@@ -225,11 +231,21 @@ select_conversation() {
 }
 
 attach_file() {
-  local filepath
+  local filepath="${1:-}"
   local filename
   local instruction
 
-  filepath=$(gum file .)
+  # If no argument provided, use file picker
+  if [[ -z $filepath ]]; then
+    filepath=$(gum file .) || return 0
+  fi
+
+  # Ensure the file exists before proceeding
+  if [[ ! -f $filepath ]]; then
+    echo "File does not exist: $filepath" >&2
+    return 0
+  fi
+
   filename=$(basename "$filepath")
 
   instruction=$(
@@ -237,8 +253,8 @@ attach_file() {
       --char-limit 0 \
       --width 100 \
       --prompt "Prompt: " \
-      --value "Attached is the content of $filename for your review"
-  )
+      --value "Attached is the content of the file '$filename' for reference"
+  ) || return 0
 
   CONVERSATION+=(-u "$instruction" -u "$(cat "$filepath")")
 }
@@ -271,6 +287,11 @@ converse() {
         attach_file
         ;;
 
+      '\f '*)
+        local file_path="${msg#\\f }"
+        attach_file "$file_path"
+        ;;
+
       *)
         CONVERSATION+=(-u "$msg")
 
@@ -278,9 +299,12 @@ converse() {
         echo "$msg"
         echo
 
-        # Initially display gpt's output as it arrives
         echo -e "$gpt_prefix"
         gpt --no-cache "${CONVERSATION[@]}" | tee "$CONVERSATION_TMP"
+
+        if [ ${#CONVERSATION[@]} -eq 2 ] && [ "$TITLE_SET" = false ]; then
+          update_title "$msg"
+        fi
 
         CONVERSATION+=(-s "$(cat "$CONVERSATION_TMP")")
         save_conversation
@@ -325,6 +349,7 @@ while true; do
     "$new_conversation")
       clear
       TITLE="New conversation"
+      TITLE_SET=false
       converse
       ;;
 
