@@ -202,6 +202,7 @@ select_conversation() {
   local choice
   local file
   local options
+  local height
 
   options=$(list_conversations)
 
@@ -212,12 +213,15 @@ select_conversation() {
 
     return 1
   else
+    height=$(($(tput lines) - 2)) # -2 lines for gum filter's header and input
+
     choice=$(
       echo "$options" \
         | gum filter \
           --header "Conversation history" \
           --placeholder "Search" \
           --no-fuzzy \
+          --height "$height" \
         || true
     )
 
