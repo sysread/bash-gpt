@@ -101,7 +101,8 @@ validate-env() {
 
   for cmd in "${tools[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
-      die "$cmd is not installed"
+      echo "$cmd is not installed" >&2
+      exit 1
     fi
   done
 
@@ -510,7 +511,7 @@ EOL
 }
 
 cmd:delete-assistant() {
-  local id
+  local assistant
 
   if get-flag --help "$@"; then
     cat << EOL
@@ -518,15 +519,15 @@ usage: $PROGRAM delete-assistant [OPTIONS]
 
 options:
   --help            show help information
-  --id              the id of the assistant (required)
+  --assistant       the id of the assistant (required)
 EOL
 
     exit 0
   fi
 
-  id=$(get-config --id "$@") || die "delete-assistant: expected --id"
+  assistant=$(get-config --assistant "$@") || die "delete-assistant: expected --assistant"
 
-  request "https://api.openai.com/v1/assistants/$id" \
+  request "https://api.openai.com/v1/assistants/$assistant" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "OpenAI-Beta: assistants=v1" \
