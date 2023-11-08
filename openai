@@ -7,8 +7,6 @@ set -eu -o pipefail
 # ------------------------------------------------------------------------------
 PROGRAM="${0##*/}"
 OPENAI_MODEL="${OPENAI_MODEL:-gpt-3.5-turbo-16k}"
-BASHGPT_DEBUG="${BASHGPT_DEBUG:-false}"
-BASHGPT_HOME="${BASHGPT_HOME:-$HOME/.bashgpt}"
 
 # ------------------------------------------------------------------------------
 # Functions
@@ -74,7 +72,6 @@ more information._
 
   * OPENAI_API_KEY        your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
   * OPENAI_MODEL          the model to use; defaults to gpt-3.5-turbo-16k
-  * BASHGPT_HOME          the directory to store the model and other files; defaults to ~/.bashgpt
 
 # See also
   * [API docs](https://platform.openai.com/docs/api-reference/assistants)
@@ -113,8 +110,6 @@ validate-env() {
   elif [[ ! "$OPENAI_API_KEY" =~ ^sk-[a-zA-Z0-9]{32,64}$ ]]; then
     die "OPENAI_API_KEY is not a valid key"
   fi
-
-  mkdir -p "$BASHGPT_HOME"
 
   return 0
 }
