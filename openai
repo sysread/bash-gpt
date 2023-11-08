@@ -47,16 +47,20 @@ _usage: $PROGRAM [OPTIONS]_
 ## Threads
   * start-thread          start a new thread
   * get-thread            get info about a thread
+  * modify-thread         modify a thread
   * delete-thread         delete a thread
 
 ## Messages
   * add-message           add a message to a thread
+  * modify-message        modify a message in a thread
   * list-messages         list messages in a thread
+  * get-message           get info about a message in a thread
 
 ## Thread runs
   * run-thread            starts running a thread
   * list-runs             list runs for a thread
   * get-run               get info about a thread's run
+  * modify-run            modify a thread's run
   * cancel-run            cancel a thread's run
 
 ## Run steps
@@ -95,7 +99,7 @@ die() {
 }
 
 validate-env() {
-  local tools=("curl" "jq" "awk" "sort" "sha256sum" "tee")
+  local tools=("curl" "jq" "gum")
   local cmd
 
   for cmd in "${tools[@]}"; do
@@ -196,6 +200,19 @@ response-ok() {
   return 0
 }
 
+payload-meta() {
+  local -n payload_var="$1"
+  shift # Shift the arguments left to remove the first one.
+
+  declare -a metas
+  get-config-multi --meta metas "$@" || true
+
+  if [[ ${#metas[@]} -gt 0 ]]; then
+    metadata=$(printf '%s\n' "${metas[@]}" | jq -R 'split("=") | {(.[0]): .[1]}' | jq -s 'add')
+    payload_var=$(jq --argjson metadata "$metadata" '. + {metadata: $metadata}' <<< "$payload_var")
+  fi
+}
+
 # ------------------------------------------------------------------------------
 # Commands
 # ------------------------------------------------------------------------------
@@ -291,8 +308,6 @@ cmd:create-assistant() {
   local description
   local model
   local payload
-  local metas
-  local metadata
 
   declare -a files
   declare -a tools
@@ -321,33 +336,19 @@ EOL
   model=$(get-config --model "$@") || true
   get-config-multi --tool tools "$@" || true
   get-config-multi --file files "$@" || true
-  get-config-multi --meta metas "$@" || true
 
   if [ -z "$model" ]; then
     model="$OPENAI_MODEL"
   fi
 
-  info "Creating assistant:"
-  info "Name:         $name"
-  info "Instructions: $instructions"
-  info "Description:  $description"
-  info "Model:        $model"
-  info "Files:        ${files[*]}"
-  info "Tools:        ${tools[*]}"
-  info "Metadata:     ${metas[*]}"
-
   payload=$(jq -n '{}')
   payload=$(jq --arg x "$model" '. + {"model": $x}' <<< "$payload")
   payload=$(jq --arg x "$name" '. + {"name": $x}' <<< "$payload")
   payload=$(jq --arg x "$instructions" '. + {"instructions": $x}' <<< "$payload")
+  payload-meta payload "$@"
 
   if [ -n "$description" ]; then
     payload=$(jq --arg x "$description" '. + {"description": $x}' <<< "$payload")
-  fi
-
-  if [[ ${#metas[@]} -gt 0 ]]; then
-    metadata=$(printf '%s\n' "${metas[@]}" | jq -R 'split("=") | {(.[0]): .[1]}' | jq -s 'add')
-    payload=$(jq --argjson metadata "$metadata" '. + {metadata: $metadata}' <<< "$payload")
   fi
 
   if [[ ${#files[@]} -gt 0 ]]; then
@@ -372,8 +373,6 @@ cmd:modify-assistant() {
   local description
   local model
   local payload
-  local metas
-  local metadata
 
   declare -a files
   declare -a tools
@@ -404,34 +403,19 @@ EOL
   model=$(get-config --model "$@") || true
   get-config-multi --tool tools "$@" || true
   get-config-multi --file files "$@" || true
-  get-config-multi --meta metas "$@" || true
 
   if [ -z "$model" ]; then
     model="$OPENAI_MODEL"
   fi
 
-  info "Updating assistant:"
-  info "ID:           $assistant"
-  info "Name:         $name"
-  info "Instructions: $instructions"
-  info "Description:  $description"
-  info "Model:        $model"
-  info "Files:        ${files[*]}"
-  info "Tools:        ${tools[*]}"
-  info "Metadata:     ${metas[*]}"
-
   payload=$(jq -n '{}')
   payload=$(jq --arg x "$model" '. + {"model": $x}' <<< "$payload")
   payload=$(jq --arg x "$name" '. + {"name": $x}' <<< "$payload")
   payload=$(jq --arg x "$instructions" '. + {"instructions": $x}' <<< "$payload")
+  payload-meta payload "$@"
 
   if [ -n "$description" ]; then
     payload=$(jq --arg x "$description" '. + {"description": $x}' <<< "$payload")
-  fi
-
-  if [[ ${#metas[@]} -gt 0 ]]; then
-    metadata=$(printf '%s\n' "${metas[@]}" | jq -R 'split("=") | {(.[0]): .[1]}' | jq -s 'add')
-    payload=$(jq --argjson metadata "$metadata" '. + {metadata: $metadata}' <<< "$payload")
   fi
 
   if [[ ${#files[@]} -gt 0 ]]; then
@@ -557,6 +541,7 @@ EOL
 cmd:add-assistant-file() {
   local assistant
   local file
+  local payload
 
   if get-flag --help "$@"; then
     cat << EOL
@@ -698,7 +683,7 @@ EOL
 }
 
 cmd:start-thread() {
-  local label
+  local payload
 
   if get-flag --help "$@"; then
     cat << EOL
@@ -706,18 +691,45 @@ usage: $PROGRAM start-thread [OPTIONS]
 
 options:
   --help            show help information
-  --label           the label of the thread (required)
+  --meta            the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)
 EOL
 
     exit 0
   fi
 
-  label=$(get-config --label "$@") || die "start_thread: expected --label"
-
   payload=$(jq -n '{}')
-  payload=$(jq --arg x "$label" '. + {"metadata": {"label": $x}}' <<< "$payload")
+  payload-meta payload "$@"
 
   request https://api.openai.com/v1/threads \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H "OpenAI-Beta: assistants=v1" \
+    -d "$payload"
+}
+
+cmd:modify-thread() {
+  local thread
+  local payload
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM modify-thread [OPTIONS]
+
+options:
+  --help            show help information
+  --thread          the id of the thread (required)
+  --meta            the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)
+EOL
+
+    exit 0
+  fi
+
+  thread=$(get-config --thread "$@") || die "modify-thread: expected --thread"
+
+  payload=$(jq -n '{}')
+  payload-meta payload "$@"
+
+  request "https://api.openai.com/v1/threads/$thread" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "OpenAI-Beta: assistants=v1" \
@@ -773,7 +785,8 @@ EOL
 
 cmd:add-message() {
   local thread
-  local message
+  local content
+  local payload
 
   if get-flag --help "$@"; then
     cat << EOL
@@ -782,23 +795,81 @@ usage: $PROGRAM add-message [OPTIONS]
 options:
   --help            show help information
   --thread          the id of the thread (required)
-  --message         the message to add (required)
+  --content         the message to add (required)
 EOL
 
     exit 0
   fi
 
   thread=$(get-config --thread "$@") || die "add-message: expected --thread"
-  message=$(get-config --message "$@") || die "add-message: expected --message"
+  content=$(get-config --content "$@") || die "add-message: expected --content"
 
   payload=$(jq -n '{"role": "user"}')
-  payload=$(jq --arg x "$message" '. + {"content": $x}' <<< "$payload")
+  payload=$(jq --arg x "$content" '. + {"content": $x}' <<< "$payload")
 
   request "https://api.openai.com/v1/threads/$thread/messages" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "OpenAI-Beta: assistants=v1" \
     -d "$payload"
+}
+
+cmd:modify-message() {
+  local thread
+  local message
+  local payload
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM modify-message [OPTIONS]
+
+options:
+  --help            show help information
+  --thread          the id of the thread (required)
+  --message         the id of the message (required)
+  --meta            the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)
+EOL
+
+    exit 0
+  fi
+
+  thread=$(get-config --thread "$@") || die "modify-message: expected --thread"
+  message=$(get-config --message "$@") || die "modify-message: expected --message"
+
+  payload=$(jq -n '{}')
+  payload-meta payload "$@"
+
+  request "https://api.openai.com/v1/threads/$thread/messages/$message" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H "OpenAI-Beta: assistants=v1" \
+    -d "$payload"
+}
+
+cmd:get-message() {
+  local thread
+  local message
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM get-message [OPTIONS]
+
+options:
+  --help            show help information
+  --thread          the id of the thread (required)
+  --message         the id of the message (required)
+EOL
+
+    exit 0
+  fi
+
+  thread=$(get-config --thread "$@") || die "get-message: expected --thread"
+  message=$(get-config --message "$@") || die "get-message: expected --message"
+
+  request "https://api.openai.com/v1/threads/$thread/messages/$message" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H "OpenAI-Beta: assistants=v1"
 }
 
 cmd:list-messages() {
@@ -897,6 +968,38 @@ EOL
   request "https://api.openai.com/v1/threads/$thread/runs/$run" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H 'OpenAI-Beta: assistants=v1'
+}
+
+cmd:modify-run() {
+  local thread
+  local run
+  local payload
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM modify-run [OPTIONS]
+
+options:
+  --help            show help information
+  --thread          the id of the thread (required)
+  --run             the id of the run (required)
+  --meta            the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)
+EOL
+
+    exit 0
+  fi
+
+  thread=$(get-config --thread "$@") || die "get-run: expected --thread"
+  run=$(get-config --run "$@") || die "get-run: expected --run"
+
+  payload=$(jq -n '{}')
+  payload-meta payload "$@"
+
+  request "https://api.openai.com/v1/threads/$thread/runs/$run" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H 'Content-Type: application/json' \
+    -H 'OpenAI-Beta: assistants=v1' \
+    -d "$payload"
 }
 
 cmd:cancel-run() {
