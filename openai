@@ -25,27 +25,43 @@ _usage: $PROGRAM [OPTIONS]_
 
 # Commands:
 
+## Files
+  * list-files            list files
+  * upload-file           upload a file
+  * retrieve-file         retrieve a file's contents
+  * delete-file           delete a file
+
 ## Assistant
   * create-assistant      create a new assistant
-  * delete-assistant      delete an assistant
+  * modify-assistant      modify an existing assistant
   * list-assistants       list assistants
+  * get-assistant         get info about an assistant
+  * delete-assistant      delete an assistant
+
+## Assistant files
+  * add-assistant-file    add a file to an assistant
+  * list-assistant-files  list files in an assistant
+  * get-assistant-file    get info about a file in an assistant
+  * delete-assistant-file delete a file from an assistant
 
 ## Threads
   * start-thread          start a new thread
+  * get-thread            get info about a thread
   * delete-thread         delete a thread
-  * get-thread            get a thread
 
 ## Messages
   * add-message           add a message to a thread
   * list-messages         list messages in a thread
 
-## Runs
+## Thread runs
   * run-thread            starts running a thread
   * list-runs             list runs for a thread
-  * get-run               get a thread's run
+  * get-run               get info about a thread's run
   * cancel-run            cancel a thread's run
+
+## Run steps
   * list-steps            list steps for a thread's run
-  * get-step              get a thread's run step
+  * get-step              get info about a thread's run step
 
 _Each command has its own set of options. Run '$PROGRAM COMMAND --help' for
 more information._
@@ -180,10 +196,13 @@ response-ok() {
   return 0
 }
 
-cmd:list-assistants() {
+# ------------------------------------------------------------------------------
+# Commands
+# ------------------------------------------------------------------------------
+cmd:list-files() {
   if get-flag --help "$@"; then
     cat << EOL
-usage: $PROGRAM list-assistants
+usage: $PROGRAM list-files
 
 options:
   --help            show help information
@@ -192,7 +211,320 @@ EOL
     exit 0
   fi
 
-  request "https://api.openai.com/v1/assistants?order=desc&limit=20" \
+  request https://api.openai.com/v1/files \
+    -H "Authorization: Bearer $OPENAI_API_KEY"
+}
+
+cmd:upload-file() {
+  local file
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM upload-file
+
+options:
+  --help            show help information
+  --file            the file to upload (required)
+EOL
+
+    exit 0
+  fi
+
+  file=$(get-config --file "$@") || die "upload-file: expected --file"
+
+  if [ ! -f "$file" ]; then
+    die "upload-file: file does not exist - $file"
+  fi
+
+  request https://api.openai.com/v1/files \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -F purpose="assistants" \
+    -F file="@$file"
+}
+
+cmd:delete-file() {
+  local file
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM delete-file
+
+options:
+  --help            show help information
+  --file            the id of the file (required)
+EOL
+
+    exit 0
+  fi
+
+  file=$(get-config --file "$@") || die "delete-file: expected --file"
+
+  request "https://api.openai.com/v1/files/$file" \
+    -X DELETE \
+    -H "Authorization: Bearer $OPENAI_API_KEY"
+}
+
+cmd:retrieve-file() {
+  local file
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM retrieve-file
+
+options:
+  --help            show help information
+  --file            the id of the file (required)
+EOL
+
+    exit 0
+  fi
+
+  file=$(get-config --file "$@") || die "retrieve-file: expected --file"
+
+  request "https://api.openai.com/v1/files/$file" \
+    -H "Authorization: Bearer $OPENAI_API_KEY"
+}
+
+cmd:create-assistant() {
+  local name
+  local instructions
+  local description
+  local model
+  local payload
+  local metas
+  local metadata
+
+  declare -a files
+  declare -a tools
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM create-assistant [OPTIONS]
+
+options:
+  --help            show help information
+  --name            the name of the assistant (required)
+  --instructions    the instructions for the assistant (required)
+  --description     the description of the assistant
+  --model           the name of the model to use; defaults to \$OPENAI_MODEL
+  --tools           the name of tools to enable; can be specified multiple times; current options are 'code_interpreter', 'retrieval', and 'function'
+  --file            the id of files to include; can be specified multiple times
+  --meta            the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)
+EOL
+
+    exit 0
+  fi
+
+  name=$(get-config --name "$@") || die "create-assistant: expected --name"
+  instructions=$(get-config --instructions "$@") || die "create-assistant: expected --instructions"
+  description=$(get-config --description "$@") || true
+  model=$(get-config --model "$@") || true
+  get-config-multi --tool tools "$@" || true
+  get-config-multi --file files "$@" || true
+  get-config-multi --meta metas "$@" || true
+
+  if [ -z "$model" ]; then
+    model="$OPENAI_MODEL"
+  fi
+
+  info "Creating assistant:"
+  info "Name:         $name"
+  info "Instructions: $instructions"
+  info "Description:  $description"
+  info "Model:        $model"
+  info "Files:        ${files[*]}"
+  info "Tools:        ${tools[*]}"
+  info "Metadata:     ${metas[*]}"
+
+  payload=$(jq -n '{}')
+  payload=$(jq --arg x "$model" '. + {"model": $x}' <<< "$payload")
+  payload=$(jq --arg x "$name" '. + {"name": $x}' <<< "$payload")
+  payload=$(jq --arg x "$instructions" '. + {"instructions": $x}' <<< "$payload")
+
+  if [ -n "$description" ]; then
+    payload=$(jq --arg x "$description" '. + {"description": $x}' <<< "$payload")
+  fi
+
+  if [[ ${#metas[@]} -gt 0 ]]; then
+    metadata=$(printf '%s\n' "${metas[@]}" | jq -R 'split("=") | {(.[0]): .[1]}' | jq -s 'add')
+    payload=$(jq --argjson metadata "$metadata" '. + {metadata: $metadata}' <<< "$payload")
+  fi
+
+  if [[ ${#files[@]} -gt 0 ]]; then
+    payload=$(jq --argjson x "$(printf '%s\n' "${files[@]}" | jq -R . | jq -s .)" '. + {file_ids: $x}' <<< "$payload")
+  fi
+
+  if [[ ${#tools[@]} -gt 0 ]]; then
+    payload=$(jq --argjson tools "$(printf '%s\n' "${tools[@]}" | jq -R '{type: .}' | jq -s .)" '. + {tools: $tools}' <<< "$payload")
+  fi
+
+  request https://api.openai.com/v1/assistants \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H "OpenAI-Beta: assistants=v1" \
+    -d "$payload"
+}
+
+cmd:modify-assistant() {
+  local assistant
+  local name
+  local instructions
+  local description
+  local model
+  local payload
+  local metas
+  local metadata
+
+  declare -a files
+  declare -a tools
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM modify-assistant [OPTIONS]
+
+options:
+  --help            show help information
+  --assistant       the id of the assistant (required)
+  --name            the name of the assistant
+  --instructions    the instructions for the assistant
+  --description     the description of the assistant
+  --model           the name of the model to use; defaults to \$OPENAI_MODEL
+  --tools           the name of tools to enable; can be specified multiple times; current options are 'code_interpreter', 'retrieval', and 'function'
+  --file            the id of files to include; can be specified multiple times
+  --meta            the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)
+EOL
+
+    exit 0
+  fi
+
+  assistant=$(get-config --assistant "$@") || die "modify-assistant: expected --assistant"
+  name=$(get-config --name "$@") || true
+  instructions=$(get-config --instructions "$@") || true
+  description=$(get-config --description "$@") || true
+  model=$(get-config --model "$@") || true
+  get-config-multi --tool tools "$@" || true
+  get-config-multi --file files "$@" || true
+  get-config-multi --meta metas "$@" || true
+
+  if [ -z "$model" ]; then
+    model="$OPENAI_MODEL"
+  fi
+
+  info "Updating assistant:"
+  info "ID:           $assistant"
+  info "Name:         $name"
+  info "Instructions: $instructions"
+  info "Description:  $description"
+  info "Model:        $model"
+  info "Files:        ${files[*]}"
+  info "Tools:        ${tools[*]}"
+  info "Metadata:     ${metas[*]}"
+
+  payload=$(jq -n '{}')
+  payload=$(jq --arg x "$model" '. + {"model": $x}' <<< "$payload")
+  payload=$(jq --arg x "$name" '. + {"name": $x}' <<< "$payload")
+  payload=$(jq --arg x "$instructions" '. + {"instructions": $x}' <<< "$payload")
+
+  if [ -n "$description" ]; then
+    payload=$(jq --arg x "$description" '. + {"description": $x}' <<< "$payload")
+  fi
+
+  if [[ ${#metas[@]} -gt 0 ]]; then
+    metadata=$(printf '%s\n' "${metas[@]}" | jq -R 'split("=") | {(.[0]): .[1]}' | jq -s 'add')
+    payload=$(jq --argjson metadata "$metadata" '. + {metadata: $metadata}' <<< "$payload")
+  fi
+
+  if [[ ${#files[@]} -gt 0 ]]; then
+    payload=$(jq --argjson x "$(printf '%s\n' "${files[@]}" | jq -R . | jq -s .)" '. + {file_ids: $x}' <<< "$payload")
+  fi
+
+  if [[ ${#tools[@]} -gt 0 ]]; then
+    payload=$(jq --argjson tools "$(printf '%s\n' "${tools[@]}" | jq -R '{type: .}' | jq -s .)" '. + {tools: $tools}' <<< "$payload")
+  fi
+
+  request "https://api.openai.com/v1/assistants/$assistant" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H "OpenAI-Beta: assistants=v1" \
+    -d "$payload"
+}
+
+cmd:get-assistant() {
+  local assistant
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM get-assistant [OPTIONS]
+
+options:
+  --help            show help information
+  --assistant       the id of the assistant (required)
+EOL
+
+    exit 0
+  fi
+
+  assistant=$(get-config --assistant "$@") || die "get-assistant: expected --assistant"
+
+  request "https://api.openai.com/v1/assistants/$assistant" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H "OpenAI-Beta: assistants=v1"
+}
+
+cmd:list-assistants() {
+  local order
+  local limit
+  local after
+  local before
+  local query
+  local endpoint
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM list-assistants
+
+options:
+  --help            show help information
+  --order           asc or desc (by data[].created_at)
+  --limit           the number of assistants to return (default: 20)
+  --after           a cursor to use for pagination (based on data[].id)
+  --before          a cursor to use for pagination (based on data[].id)
+EOL
+
+    exit 0
+  fi
+
+  order=$(get-config --order "$@") || true
+  limit=$(get-config --limit "$@") || true
+  after=$(get-config --after "$@") || true
+  before=$(get-config --before "$@") || true
+
+  query=""
+
+  if [ -n "$order" ]; then
+    query="$query&order=$order"
+  fi
+
+  if [ -n "$limit" ]; then
+    query="$query&limit=$limit"
+  fi
+
+  if [ -n "$after" ]; then
+    query="$query&after=$after"
+  fi
+
+  if [ -n "$before" ]; then
+    query="$query&before=$before"
+  fi
+
+  endpoint="https://api.openai.com/v1/assistants"
+
+  if [ -n "$query" ]; then
+    endpoint="$endpoint?$query"
+  fi
+
+  request "$endpoint" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "OpenAI-Beta: assistants=v1"
@@ -222,49 +554,147 @@ EOL
     -X DELETE
 }
 
-cmd:create-assistant() {
-  local name
-  local instructions
-  local description
-  local payload
+cmd:add-assistant-file() {
+  local assistant
+  local file
 
   if get-flag --help "$@"; then
     cat << EOL
-usage: $PROGRAM create-assistant [OPTIONS]
+usage: $PROGRAM add-assistant-file [OPTIONS]
 
 options:
   --help            show help information
-  --name            the name of the assistant (required)
-  --instructions    the instructions for the assistant (required)
-  --description     the description of the assistant
+  --assistant       the id of the assistant (required)
+  --file            the id of the file (required)
 EOL
 
     exit 0
   fi
 
-  name=$(get-config --name "$@") || die "create_assistant: expected --name"
-  instructions=$(get-config --instructions "$@") || die "create_assistant: expected --instructions"
-  description=$(get-config --description "$@") || true
-
-  info "Creating assistant: $name"
-  info "Instructions:       $instructions"
-  info "Description:        $description"
-  info "Model:              $OPENAI_MODEL"
+  assistant=$(get-config --assistant "$@") || die "add-assistant-file: expected --assistant"
+  file=$(get-config --file "$@") || die "add-assistant-file: expected --file"
 
   payload=$(jq -n '{}')
-  payload=$(jq --arg x "$OPENAI_MODEL" '. + {"model": $x}' <<< "$payload")
-  payload=$(jq --arg x "$name" '. + {"name": $x}' <<< "$payload")
-  payload=$(jq --arg x "$instructions" '. + {"instructions": $x}' <<< "$payload")
+  payload=$(jq --arg x "$file" '. + {"file_id": $x}' <<< "$payload")
 
-  if [ -n "$description" ]; then
-    payload=$(jq --arg x "$description" '. + {"description": $x}' <<< "$payload")
+  request "https://api.openai.com/v1/assistants/$assistant/files" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H 'Content-Type: application/json' \
+    -H 'OpenAI-Beta: assistants=v1' \
+    -d "$payload"
+}
+
+cmd:get-assistant-file() {
+  local assistant
+  local file
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM get-assistant-file [OPTIONS]
+
+options:
+  --help            show help information
+  --assistant       the id of the assistant (required)
+  --file            the id of the file (required)
+EOL
+
+    exit 0
   fi
 
-  request "https://api.openai.com/v1/assistants" \
+  assistant=$(get-config --assistant "$@") || die "get-assistant-file: expected --assistant"
+  file=$(get-config --file "$@") || die "get-assistant-file: expected --file"
+
+  request "https://api.openai.com/v1/assistants/$assistant/files/$file" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H 'Content-Type: application/json' \
+    -H 'OpenAI-Beta: assistants=v1'
+}
+
+cmd:delete-assistant-file() {
+  local assistant
+  local file
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM delete-assistant-file [OPTIONS]
+
+options:
+  --help            show help information
+  --assistant       the id of the assistant (required)
+  --file            the id of the file (required)
+EOL
+
+    exit 0
+  fi
+
+  assistant=$(get-config --assistant "$@") || die "get-assistant-file: expected --assistant"
+  file=$(get-config --file "$@") || die "get-assistant-file: expected --file"
+
+  request "https://api.openai.com/v1/assistants/$assistant/files/$file" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H 'Content-Type: application/json' \
+    -H 'OpenAI-Beta: assistants=v1' \
+    -X DELETE
+}
+
+cmd:list-assistant-files() {
+  local assistant
+  local order
+  local limit
+  local after
+  local before
+  local query
+  local endpoint
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM list-assistant-files
+
+options:
+  --help            show help information
+  --order           asc or desc (by data[].created_at)
+  --limit           the number of entries to return (default: 20)
+  --after           a cursor to use for pagination (based on data[].id)
+  --before          a cursor to use for pagination (based on data[].id)
+EOL
+
+    exit 0
+  fi
+
+  assistant=$(get-config --assistant "$@") || die "list-assistant-files: expected --assistant"
+  order=$(get-config --order "$@") || true
+  limit=$(get-config --limit "$@") || true
+  after=$(get-config --after "$@") || true
+  before=$(get-config --before "$@") || true
+
+  query=""
+
+  if [ -n "$order" ]; then
+    query="$query&order=$order"
+  fi
+
+  if [ -n "$limit" ]; then
+    query="$query&limit=$limit"
+  fi
+
+  if [ -n "$after" ]; then
+    query="$query&after=$after"
+  fi
+
+  if [ -n "$before" ]; then
+    query="$query&before=$before"
+  fi
+
+  endpoint="https://api.openai.com/v1/assistants/$assistant/files"
+
+  if [ -n "$query" ]; then
+    endpoint="$endpoint?$query"
+  fi
+
+  request "$endpoint" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H "OpenAI-Beta: assistants=v1" \
-    -d "$payload"
+    -H "OpenAI-Beta: assistants=v1"
 }
 
 cmd:start-thread() {
