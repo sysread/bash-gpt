@@ -209,6 +209,40 @@ payload-meta() {
   fi
 }
 
+build-paginated-uri() {
+  local endpoint="$1"
+  shift
+
+  order=$(get-config --order "$@") || true
+  limit=$(get-config --limit "$@") || true
+  after=$(get-config --after "$@") || true
+  before=$(get-config --before "$@") || true
+
+  query=""
+
+  if [ -n "$order" ]; then
+    query="$query&order=$order"
+  fi
+
+  if [ -n "$limit" ]; then
+    query="$query&limit=$limit"
+  fi
+
+  if [ -n "$after" ]; then
+    query="$query&after=$after"
+  fi
+
+  if [ -n "$before" ]; then
+    query="$query&before=$before"
+  fi
+
+  if [ -n "$query" ]; then
+    echo "$endpoint?$query"
+  else
+    echo "$endpoint"
+  fi
+}
+
 # ------------------------------------------------------------------------------
 # Commands
 # ------------------------------------------------------------------------------
@@ -475,34 +509,7 @@ EOL
     exit 0
   fi
 
-  order=$(get-config --order "$@") || true
-  limit=$(get-config --limit "$@") || true
-  after=$(get-config --after "$@") || true
-  before=$(get-config --before "$@") || true
-
-  query=""
-
-  if [ -n "$order" ]; then
-    query="$query&order=$order"
-  fi
-
-  if [ -n "$limit" ]; then
-    query="$query&limit=$limit"
-  fi
-
-  if [ -n "$after" ]; then
-    query="$query&after=$after"
-  fi
-
-  if [ -n "$before" ]; then
-    query="$query&before=$before"
-  fi
-
-  endpoint="https://api.openai.com/v1/assistants"
-
-  if [ -n "$query" ]; then
-    endpoint="$endpoint?$query"
-  fi
+  endpoint=$(build-paginated-uri "https://api.openai.com/v1/assistants" "$@")
 
   request "$endpoint" \
     -H "Content-Type: application/json" \
@@ -643,34 +650,7 @@ EOL
   fi
 
   assistant=$(get-config --assistant "$@") || die "list-assistant-files: expected --assistant"
-  order=$(get-config --order "$@") || true
-  limit=$(get-config --limit "$@") || true
-  after=$(get-config --after "$@") || true
-  before=$(get-config --before "$@") || true
-
-  query=""
-
-  if [ -n "$order" ]; then
-    query="$query&order=$order"
-  fi
-
-  if [ -n "$limit" ]; then
-    query="$query&limit=$limit"
-  fi
-
-  if [ -n "$after" ]; then
-    query="$query&after=$after"
-  fi
-
-  if [ -n "$before" ]; then
-    query="$query&before=$before"
-  fi
-
-  endpoint="https://api.openai.com/v1/assistants/$assistant/files"
-
-  if [ -n "$query" ]; then
-    endpoint="$endpoint?$query"
-  fi
+  endpoint=$(build-paginated-uri "https://api.openai.com/v1/assistants/$assistant/files" "$@")
 
   request "$endpoint" \
     -H "Content-Type: application/json" \
@@ -784,6 +764,8 @@ cmd:add-message() {
   local content
   local payload
 
+  declare -a files
+
   if get-flag --help "$@"; then
     cat << EOL
 usage: $PROGRAM add-message [OPTIONS]
@@ -792,6 +774,7 @@ options:
   --help            show help information
   --thread          the id of the thread (required)
   --content         the message to add (required)
+  --file            the id of files to include; can be specified multiple times
 EOL
 
     exit 0
@@ -799,9 +782,14 @@ EOL
 
   thread=$(get-config --thread "$@") || die "add-message: expected --thread"
   content=$(get-config --content "$@") || die "add-message: expected --content"
+  get-config-multi --file files "$@" || true
 
   payload=$(jq -n '{"role": "user"}')
   payload=$(jq --arg x "$content" '. + {"content": $x}' <<< "$payload")
+
+  if [[ ${#files[@]} -gt 0 ]]; then
+    payload=$(jq --argjson x "$(printf '%s\n' "${files[@]}" | jq -R . | jq -s .)" '. + {file_ids: $x}' <<< "$payload")
+  fi
 
   request "https://api.openai.com/v1/threads/$thread/messages" \
     -H "Content-Type: application/json" \
@@ -870,6 +858,10 @@ EOL
 
 cmd:list-messages() {
   local thread
+  local order
+  local limit
+  local after
+  local before
 
   if get-flag --help "$@"; then
     cat << EOL
@@ -878,14 +870,19 @@ usage: $PROGRAM list-messages [OPTIONS]
 options:
   --help            show help information
   --thread          the id of the thread (required)
+  --order           asc or desc (by data[].created_at)
+  --limit           the number of entries to return (default: 20)
+  --after           a cursor to use for pagination (based on data[].id)
+  --before          a cursor to use for pagination (based on data[].id)
 EOL
 
     exit 0
   fi
 
   thread=$(get-config --thread "$@") || die "add-message: expected --thread"
+  endpoint=$(build-paginated-uri "https://api.openai.com/v1/threads/$thread/messages" "$@")
 
-  request "https://api.openai.com/v1/threads/$thread/messages" \
+  request "$endpoint" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "OpenAI-Beta: assistants=v1"
