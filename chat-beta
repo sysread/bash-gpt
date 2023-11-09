@@ -22,23 +22,6 @@ MESSAGE_ID=""
 # ------------------------------------------------------------------------------
 # Functions
 # ------------------------------------------------------------------------------
-# shellcheck disable=SC2120
-usage() {
-  local exit_code="${1:-0}"
-
-  gum format -- << EOL
-_usage: $PROGRAM [OPTIONS]_
-
-# Environmental variables
-
-  * OPENAI_API_KEY        your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
-  * OPENAI_MODEL          the model to use; defaults to gpt-3.5-turbo-16k
-  * BASHGPT_HOME          the directory to store chat history; defaults to ~/.bashgpt
-EOL
-
-  exit "$exit_code"
-}
-
 validate-env() {
   local tools=("curl" "jq" "gum" "openai")
   local cmd
@@ -46,6 +29,14 @@ validate-env() {
   for cmd in "${tools[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
       echo "$cmd is not installed" >&2
+
+      if [ "$cmd" == "openai" ]; then
+        echo " - $cmd is a beta tool provided by this project." >&2
+        echo ' - You can make it available by putting it on your PATH' >&2
+        # shellcheck disable=SC2016
+        echo '      export PATH="$PATH:/path/to/bash-gpt"' >&2
+      fi
+
       exit 1
     fi
   done
@@ -64,10 +55,6 @@ validate-env() {
   restore-selected-assistant
 
   return 0
-}
-
-info() {
-  gum style --foreground="#00FF00" "$PROGRAM: $*" >&2
 }
 
 warn() {
