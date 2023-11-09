@@ -6,7 +6,9 @@ set -eu -o pipefail
 # Params
 # ------------------------------------------------------------------------------
 PROGRAM="${0##*/}"
-STORE="${BASHGPT_HOME:-$HOME/.bashgpt}/chat"
+STORE="$HOME/.bashgpt/chat"
+CHAT_HISTORY_FILE="$STORE/chat-history"
+LAST_ASSISTANT_FILE="$STORE/last_assistant.conf"
 
 # ------------------------------------------------------------------------------
 # Globals
@@ -14,6 +16,7 @@ STORE="${BASHGPT_HOME:-$HOME/.bashgpt}/chat"
 ASSISTANT_NAME=""
 ASSISTANT_ID=""
 THREAD_ID=""
+THREAD_LABEL=""
 MESSAGE_ID=""
 
 # ------------------------------------------------------------------------------
@@ -55,6 +58,11 @@ validate-env() {
 
   mkdir -p "$STORE"
 
+  touch "$CHAT_HISTORY_FILE"
+  touch "$LAST_ASSISTANT_FILE"
+
+  restore-selected-assistant
+
   return 0
 }
 
@@ -75,10 +83,27 @@ die() {
 # ------------------------------------------------------------------------------
 # API calls
 # ------------------------------------------------------------------------------
+get-completion() {
+  local model="$1"
+  local system="$2"
+  local prompt="$3"
+  local result
+
+  if ! result=$(openai get-completion --model "$model" --system "$system" --prompt "$prompt"); then
+    warn "error getting completion"
+    die "$result"
+  fi
+
+  jq -r '.choices[0].message.content' <<< "$result"
+}
+
 list-assistants() {
   local result
 
-  result=$(openai list-assistants)
+  if ! result=$(openai list-assistants); then
+    warn "error listing assistants"
+    die "$result"
+  fi
 
   while IFS=$'\t' read -r id name; do
     echo "$id:$name"
@@ -102,6 +127,18 @@ create-assistant() {
 
   # Now include the tool arguments in the openai invocation
   if ! result=$(openai create-assistant --name "$name" --instructions "$instructions" --description "$description" "${tool_args[@]}" 2>&1); then
+    die "$result"
+  fi
+
+  jq -r '.id' <<< "$result"
+}
+
+start-thread() {
+  local result
+  local id
+
+  if ! result=$(openai start-thread); then
+    warn "error creating a new thread"
     die "$result"
   fi
 
@@ -209,6 +246,57 @@ add-assistant() {
 
   ASSISTANT_ID=$(create-assistant "$name" "$instructions" "$description" "$tools")
   ASSISTANT_NAME="$name"
+
+  save-selected-assistant
+}
+
+save-selected-assistant() {
+  echo "$ASSISTANT_ID" > "$LAST_ASSISTANT_FILE"
+  echo "$ASSISTANT_NAME" >> "$LAST_ASSISTANT_FILE"
+}
+
+restore-selected-assistant() {
+  local last_assistant
+
+  if [ -f "$LAST_ASSISTANT_FILE" ]; then
+    readarray -t last_assistant < "$LAST_ASSISTANT_FILE"
+
+    if [ "${#last_assistant[@]}" -ne 2 ]; then
+      rm "$LAST_ASSISTANT_FILE"
+      touch "$LAST_ASSISTANT_FILE"
+      return 0
+    fi
+
+    ASSISTANT_ID="${last_assistant[0]}"
+    ASSISTANT_NAME="${last_assistant[1]}"
+  fi
+}
+
+# ------------------------------------------------------------------------------
+# The fun bit here is that I had GPT generate these messages. Meta AF, me.
+# ------------------------------------------------------------------------------
+get-random-polling-message() {
+  local messages=(
+    "Analyzing tensor matrices..."
+    "Consulting with virtual neurons..."
+    "Assembling insights from data streams..."
+    "Generating response with algorithmic magic..."
+    "Beaming queries into the neural network..."
+    "Harnessing the power of machine learning..."
+    "Crunching numbers and patterns..."
+    "Channeling the computational oracles..."
+    "Navigating layers of deep learning..."
+    "Synthesizing knowledge from the digital aether..."
+    "Calibrating language models for wisdom..."
+    "Propagating activations through the network..."
+    "Eliciting secrets from the realm of data..."
+    "Optimizing synaptic connections virtually..."
+    "Invoking the syntactic synthesis ritual..."
+    "Pondering the query in the silicon mind..."
+  )
+
+  local idx=$((RANDOM % ${#messages[@]}))
+  echo "${messages[$idx]}"
 }
 
 send-msg-and-wait() {
@@ -223,7 +311,7 @@ send-msg-and-wait() {
   while true; do
     case $(get-run-status "$run_id") in
       queued | in_progress)
-        gum spin -s pulse --title "..." -- sleep 0.5
+        gum spin -s dot --title.foreground="#00FF00" --title "$(get-random-polling-message)" -- sleep 2
         ;;
 
       completed)
@@ -263,32 +351,37 @@ attach-file() {
 
 chat() {
   local placeholder="ctrl-d submits | esc cancels | send \\f to attach a file"
+  local needs_summary=false
   local messages
   local msg
 
   if [ -z "$ASSISTANT_ID" ]; then
-    die "ASSISTANT_ID is not set"
+    die "No assistant is selected"
   fi
 
   if [ -z "$THREAD_ID" ]; then
-    if ! thread_id=$(openai start-thread | jq -r '.id'); then
-      die "error creating a new thread:\n$thread_id"
-    fi
+    die "No chat is selected"
+  fi
 
-    THREAD_ID="$thread_id"
+  if [ "$THREAD_LABEL" == "New chat with $ASSISTANT_NAME" ]; then
+    needs_summary=true
   fi
 
   while true; do
-    list-messages
+    messages=$(list-messages)
+    echo -e "$messages"
 
     while true; do
+      echo
       msg=$(
         gum write \
           --width 100 \
-          --height 20 \
+          --height 10 \
           --char-limit 0 \
           --placeholder "$placeholder" \
+          --header "$THREAD_LABEL" \
           --header.foreground="#00FF00" \
+          --cursor.mode=static \
           || true
       )
 
@@ -308,12 +401,62 @@ chat() {
           continue
           ;;
 
+        '\resummarize')
+          save-to-chat-history
+          continue
+          ;;
+
         *)
           send-msg-and-wait "$msg"
+
+          if [ "$needs_summary" = true ]; then
+            save-to-chat-history
+            needs_summary=false
+          fi
+
           break
           ;;
       esac
     done
+  done
+}
+
+save-to-chat-history() {
+  # if grep "$ASSISTANT_ID:$THREAD_ID:" "$CHAT_HISTORY_FILE" > /dev/null; then
+  #   return 0
+  # fi
+
+  THREAD_LABEL=$(summarize-chat)
+  echo "$ASSISTANT_ID:$THREAD_ID:$THREAD_LABEL" >> "$CHAT_HISTORY_FILE"
+}
+
+summarize-chat() {
+  get-completion \
+    'gpt-3.5-turbo-16k' \
+    'You are a bot that summarizes conversations tersely' \
+    "$(list-messages)\n\nSummarize the above conversation in 10 words or less"
+}
+
+new-chat() {
+  THREAD_ID=$(start-thread)
+  THREAD_LABEL="New chat with $ASSISTANT_NAME"
+  MESSAGE_ID=""
+  chat
+}
+
+list-chats() {
+  local assistant_id
+  local thread_id
+  local label
+
+  if [ -z "$ASSISTANT_ID" ]; then
+    die "No assistant is selected"
+  fi
+
+  tac "$CHAT_HISTORY_FILE" | while IFS=':' read -r assistant_id thread_id label; do
+    if [ "$assistant_id" == "$ASSISTANT_ID" ]; then
+      echo -e "$label ($(gum style --faint "id: $thread_id"))"
+    fi
   done
 }
 
@@ -325,7 +468,7 @@ assistant-menu() {
   local selected
 
   while IFS=':' read -r id name; do
-    choices+=("$name (id: $(gum style --faint "id: $id"))")
+    choices+=("$name ($(gum style --faint "id: $id"))")
   done < <(list-assistants)
 
   choices+=("Create a new assistant")
@@ -342,12 +485,68 @@ assistant-menu() {
       ;;
 
     *)
-      id="$(echo "$selected" | sed -E 's/.*id: ([^)]+).*/\1/')"
-      name="$(echo "$selected" | sed -E 's/^(.*) \(id: [^)]+\)$/\1/')"
-      ASSISTANT_ID="$id"
-      ASSISTANT_NAME="$name"
+      ASSISTANT_ID="$(echo "$selected" | sed -E 's/.*id: ([^)]+).*/\1/')"
+      ASSISTANT_NAME="$(echo "$selected" | sed -E 's/^(.*) \(id: [^)]+\)$/\1/')"
+      save-selected-assistant
       ;;
   esac
+}
+
+chat-menu() {
+  local choices
+  local selected
+
+  if [ -z "$ASSISTANT_ID" ]; then
+    die "No assistant is selected"
+  fi
+
+  choices=(
+    "Start a new chat"
+    "Continue a previous chat with $ASSISTANT_NAME"
+  )
+
+  selected=$(gum choose --header "Chats" "${choices[@]}") \
+    || return 0
+
+  case "$selected" in
+    "")
+      return 0
+      ;;
+
+    "Start a new chat")
+      new-chat
+      ;;
+
+    "Continue a previous chat with $ASSISTANT_NAME")
+      chat-history-menu
+      ;;
+  esac
+}
+
+chat-history-menu() {
+  local choice
+  local height
+
+  height=$(($(tput lines) - 2)) # -2 lines for gum filter's header and input
+
+  choice=$(
+    list-chats \
+      | gum filter \
+        --header "Conversation history" \
+        --placeholder "Search" \
+        --no-fuzzy \
+        --height "$height" \
+      || true
+  )
+
+  if [ -n "$choice" ]; then
+    THREAD_ID="$(echo "$choice" | sed -E 's/.*id: ([^)]+).*/\1/')"
+    THREAD_LABEL="$(echo "$choice" | sed -E 's/^(.*) \(id: [^)]+\)$/\1/')"
+    MESSAGE_ID=""
+    chat
+  else
+    return 0
+  fi
 }
 
 main-menu() {
@@ -381,7 +580,7 @@ main-menu() {
         ;;
 
       "Chat with $ASSISTANT_NAME")
-        chat
+        chat-menu
         ;;
 
       "Quit")
@@ -391,7 +590,6 @@ main-menu() {
   done
 }
 
-# ------------------------------------------------------------------------------
-# Main
-# ------------------------------------------------------------------------------
+validate-env
 main-menu
+exit 0
