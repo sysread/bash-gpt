@@ -369,7 +369,7 @@ chat() {
           --height 10 \
           --char-limit 0 \
           --placeholder "$placeholder" \
-          --header "$THREAD_LABEL" \
+          --header ">>> $THREAD_LABEL <<<" \
           --header.foreground="#00FF00" \
           --cursor.mode=static \
           || true
