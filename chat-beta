@@ -174,13 +174,13 @@ print-user-msg() {
     msg="Attached file: $(gum style --faint "${BASH_REMATCH[1]}")"
   fi
 
-  gum style --foreground "#00FF00" --bold "You:"
+  gum style --foreground '#00FF00' --bold 'You:'
   gum format "$msg"
 }
 
 print-gpt-msg() {
   local msg="$1"
-  gum style --foreground "#0000FF" --bold "$ASSISTANT_NAME:"
+  gum style --foreground '#66CCFF' --bold "$ASSISTANT_NAME:"
   gum format "$msg"
 }
 
@@ -280,6 +280,8 @@ get-random-polling-message() {
     "Optimizing synaptic connections virtually..."
     "Invoking the syntactic synthesis ritual..."
     "Pondering the query in the silicon mind..."
+    "Querying the knowledge graph..."
+    "Counting electric sheep..."
   )
 
   local idx=$((RANDOM % ${#messages[@]}))
@@ -412,12 +414,12 @@ chat() {
 }
 
 save-to-chat-history() {
-  # if grep "$ASSISTANT_ID:$THREAD_ID:" "$CHAT_HISTORY_FILE" > /dev/null; then
-  #   return 0
-  # fi
+  if grep "$ASSISTANT_ID:$THREAD_ID:" "$CHAT_HISTORY_FILE" > /dev/null; then
+    sed -i "/$ASSISTANT_ID:$THREAD_ID:/d" "$CHAT_HISTORY_FILE"
+  fi
 
   THREAD_LABEL=$(summarize-chat)
-  echo "$ASSISTANT_ID:$THREAD_ID:$THREAD_LABEL" >> "$CHAT_HISTORY_FILE"
+  printf '%s\n' "$ASSISTANT_ID:$THREAD_ID:$THREAD_LABEL" >> "$CHAT_HISTORY_FILE"
 }
 
 summarize-chat() {
