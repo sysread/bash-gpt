@@ -311,7 +311,7 @@ send-msg-and-wait() {
   while true; do
     case $(get-run-status "$run_id") in
       queued | in_progress)
-        gum spin -s dot --title.foreground="#00FF00" --title "$(get-random-polling-message)" -- sleep 2
+        gum spin -s dot --title.foreground="#00FF00" --title "$(get-random-polling-message)" -- sleep 3
         ;;
 
       completed)
@@ -369,7 +369,10 @@ chat() {
 
   while true; do
     messages=$(list-messages)
-    echo -e "$messages"
+
+    while IFS= read -r line; do
+      printf "%s\n" "$line"
+    done <<< "$messages"
 
     while true; do
       echo
