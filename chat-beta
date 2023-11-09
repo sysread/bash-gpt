@@ -1,0 +1,397 @@
+#!/usr/bin/env bash
+
+set -eu -o pipefail
+
+# ------------------------------------------------------------------------------
+# Params
+# ------------------------------------------------------------------------------
+PROGRAM="${0##*/}"
+STORE="${BASHGPT_HOME:-$HOME/.bashgpt}/chat"
+
+# ------------------------------------------------------------------------------
+# Globals
+# ------------------------------------------------------------------------------
+ASSISTANT_NAME=""
+ASSISTANT_ID=""
+THREAD_ID=""
+MESSAGE_ID=""
+
+# ------------------------------------------------------------------------------
+# Functions
+# ------------------------------------------------------------------------------
+# shellcheck disable=SC2120
+usage() {
+  local exit_code="${1:-0}"
+
+  gum format -- << EOL
+_usage: $PROGRAM [OPTIONS]_
+
+# Environmental variables
+
+  * OPENAI_API_KEY        your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
+  * OPENAI_MODEL          the model to use; defaults to gpt-3.5-turbo-16k
+  * BASHGPT_HOME          the directory to store chat history; defaults to ~/.bashgpt
+EOL
+
+  exit "$exit_code"
+}
+
+validate-env() {
+  local tools=("curl" "jq" "gum" "openai")
+  local cmd
+
+  for cmd in "${tools[@]}"; do
+    if ! command -v "$cmd" &> /dev/null; then
+      echo "$cmd is not installed" >&2
+      exit 1
+    fi
+  done
+
+  if [ -z "${OPENAI_API_KEY:-}" ]; then
+    die "OPENAI_API_KEY is not set in the environment"
+  elif [[ ! "$OPENAI_API_KEY" =~ ^sk-[a-zA-Z0-9]{32,64}$ ]]; then
+    die "OPENAI_API_KEY is not a valid key"
+  fi
+
+  mkdir -p "$STORE"
+
+  return 0
+}
+
+info() {
+  gum style --foreground="#00FF00" "$PROGRAM: $*" >&2
+}
+
+warn() {
+  local msg="${1:-something went wrong}"
+  gum style --foreground="#FF0000" "$PROGRAM: $msg" >&2
+}
+
+die() {
+  warn "$@"
+  exit 1
+}
+
+# ------------------------------------------------------------------------------
+# API calls
+# ------------------------------------------------------------------------------
+list-assistants() {
+  local result
+
+  result=$(openai list-assistants)
+
+  while IFS=$'\t' read -r id name; do
+    echo "$id:$name"
+  done < <(jq -r '.data[] | "\(.id)\t\(.name // "null")"' <<< "$result")
+}
+
+create-assistant() {
+  local name="$1"
+  local instructions="$2"
+  local description="$3"
+  local tools=()
+  local tool_args=()
+
+  # gum choose returns a space-separated list of selected tools, so we read it into an array
+  IFS=' ' read -r -a tools <<< "$4"
+
+  # Build the tool arguments
+  for tool in "${tools[@]}"; do
+    [[ -n "$tool" ]] && tool_args+=(--tool "$tool")
+  done
+
+  # Now include the tool arguments in the openai invocation
+  if ! result=$(openai create-assistant --name "$name" --instructions "$instructions" --description "$description" "${tool_args[@]}" 2>&1); then
+    die "$result"
+  fi
+
+  jq -r '.id' <<< "$result"
+}
+
+send-msg() {
+  local msg="$1"
+  local result
+
+  if ! result=$(openai add-message --thread "$THREAD_ID" --content "$msg"); then
+    warn "error sending message"
+    die "$result"
+  fi
+
+  jq -r '.id' <<< "$result"
+}
+
+run-thread() {
+  local result
+
+  if ! result=$(openai run-thread --assistant "$ASSISTANT_ID" --thread "$THREAD_ID"); then
+    warn "error running thread"
+    die "$result"
+  else
+    jq -r '.id' <<< "$result"
+  fi
+}
+
+get-run-status() {
+  local run_id="$1"
+  local result
+
+  if ! result=$(openai get-run --thread "$THREAD_ID" --run "$run_id"); then
+    warn "error getting run"
+    die "$result"
+  fi
+
+  jq -r '.status' <<< "$result"
+}
+
+print-user-msg() {
+  local msg="$1"
+
+  if [[ "$msg" =~ ^Attached\ file:\ (.*)$ ]]; then
+    msg="Attached file: $(gum style --faint "${BASH_REMATCH[1]}")"
+  fi
+
+  gum style --foreground "#00FF00" --bold "You:"
+  gum format "$msg"
+}
+
+print-gpt-msg() {
+  local msg="$1"
+  gum style --foreground "#0000FF" --bold "$ASSISTANT_NAME:"
+  gum format "$msg"
+}
+
+list-messages() {
+  local messages
+  local role
+  local text
+
+  messages=$(openai list-messages --thread "$THREAD_ID" --order "asc" --after "$MESSAGE_ID")
+
+  jq -c '.data[] | {role: .role, text: .content[0].text.value}' <<< "$messages" | while IFS= read -r line; do
+    MESSAGE_ID=$(jq -r '.id' <<< "$line")
+
+    role=$(jq -r '.role' <<< "$line")
+    text=$(jq -r '.text' <<< "$line")
+
+    if [[ "$role" == "user" ]]; then
+      print-user-msg "$text"
+    else
+      print-gpt-msg "$text"
+    fi
+  done
+}
+
+# ------------------------------------------------------------------------------
+# Features
+# ------------------------------------------------------------------------------
+add-assistant() {
+  local name
+  local instructions
+  local description
+  local tools
+
+  name=$(gum input --prompt 'Enter a name for the assistant: ' --placeholder 'Gene Peetee') || return 0
+  [[ -z "$name" ]] && {
+    warn "name is required"
+    return 1
+  }
+
+  instructions=$(gum input --prompt 'Give it some custom instructions: ' --placeholder 'You are a helpful chatbot.') || return 0
+  [[ -z "$instructions" ]] && {
+    warn "instructions are required"
+    return 1
+  }
+
+  description=$(gum input --prompt 'Enter an optional description: ' --placeholder 'Gene Peetee, the helpful chatbot.')
+
+  tools="$(gum choose --header 'Select any add-on tools you want available to the assistant' --no-limit {none,code_interpreter,retrieval,function})" || true
+  tools=$(echo "$tools" | sed '/^none$/d;/^$/d')
+
+  ASSISTANT_ID=$(create-assistant "$name" "$instructions" "$description" "$tools")
+  ASSISTANT_NAME="$name"
+}
+
+send-msg-and-wait() {
+  local msg="$1"
+  local result
+  local run_id
+
+  MESSAGE_ID=$(send-msg "$msg")
+  print-user-msg "$msg"
+  run_id=$(run-thread)
+
+  while true; do
+    case $(get-run-status "$run_id") in
+      queued | in_progress)
+        gum spin -s pulse --title "..." -- sleep 0.5
+        ;;
+
+      completed)
+        return 0
+        ;;
+
+      *)
+        warn "got unexpected status: not sure what to do"
+        die "$result"
+        ;;
+    esac
+  done
+}
+
+attach-file() {
+  local filepath="${1:-}"
+  local filename
+  local message
+
+  # If no argument provided, use file picker
+  if [[ -z $filepath ]]; then
+    filepath=$(gum file .) || return 0
+  fi
+
+  # Ensure the file exists before proceeding
+  if [[ ! -f $filepath ]]; then
+    echo "File does not exist: $filepath" >&2
+    return 0
+  fi
+
+  filename=$(basename "$filepath")
+  message="Attached file: $filename\n\n\`\`\`$(cat "$filepath")\`\`\`"
+
+  MESSAGE_ID=$(send-msg "$message")
+  print-user-msg "$message"
+}
+
+chat() {
+  local placeholder="ctrl-d submits | esc cancels | send \\f to attach a file"
+  local messages
+  local msg
+
+  if [ -z "$ASSISTANT_ID" ]; then
+    die "ASSISTANT_ID is not set"
+  fi
+
+  if [ -z "$THREAD_ID" ]; then
+    if ! thread_id=$(openai start-thread | jq -r '.id'); then
+      die "error creating a new thread:\n$thread_id"
+    fi
+
+    THREAD_ID="$thread_id"
+  fi
+
+  while true; do
+    list-messages
+
+    while true; do
+      msg=$(
+        gum write \
+          --width 100 \
+          --height 20 \
+          --char-limit 0 \
+          --placeholder "$placeholder" \
+          --header.foreground="#00FF00" \
+          || true
+      )
+
+      case "$msg" in
+        '')
+          break 2
+          ;;
+
+        '\f')
+          attach-file
+          continue
+          ;;
+
+        '\f '*)
+          local file_path="${msg#\\f }"
+          attach-file "$file_path"
+          continue
+          ;;
+
+        *)
+          send-msg-and-wait "$msg"
+          break
+          ;;
+      esac
+    done
+  done
+}
+
+# ------------------------------------------------------------------------------
+# Menus
+# ------------------------------------------------------------------------------
+assistant-menu() {
+  local choices=()
+  local selected
+
+  while IFS=':' read -r id name; do
+    choices+=("$name (id: $(gum style --faint "id: $id"))")
+  done < <(list-assistants)
+
+  choices+=("Create a new assistant")
+
+  selected=$(gum choose --header "Select an assistant" "${choices[@]}") || return 0
+
+  case "$selected" in
+    "")
+      return 0
+      ;;
+
+    "Create a new assistant")
+      add-assistant
+      ;;
+
+    *)
+      id="$(echo "$selected" | sed -E 's/.*id: ([^)]+).*/\1/')"
+      name="$(echo "$selected" | sed -E 's/^(.*) \(id: [^)]+\)$/\1/')"
+      ASSISTANT_ID="$id"
+      ASSISTANT_NAME="$name"
+      ;;
+  esac
+}
+
+main-menu() {
+  local choices
+  local selected
+
+  while true; do
+    clear
+
+    choices=()
+
+    if [ -n "$ASSISTANT_NAME" ]; then
+      choices+=("Chat with $ASSISTANT_NAME")
+    fi
+
+    choices+=(
+      "Select an assistant"
+      "Quit"
+    )
+
+    selected=$(gum choose --header "What would you like to do?" "${choices[@]}") \
+      || return 0
+
+    case "$selected" in
+      "")
+        continue
+        ;;
+
+      "Select an assistant")
+        assistant-menu
+        ;;
+
+      "Chat with $ASSISTANT_NAME")
+        chat
+        ;;
+
+      "Quit")
+        return 0
+        ;;
+    esac
+  done
+}
+
+# ------------------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------------------
+main-menu
