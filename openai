@@ -1076,6 +1076,49 @@ EOL
     -H 'OpenAI-Beta: assistants=v1'
 }
 
+cmd:get-completion() {
+  local model
+  local system
+  local prompt
+  local messages
+  local payload
+
+  if get-flag --help "$@"; then
+    cat << EOL
+usage: $PROGRAM get-completion [OPTIONS]
+
+options:
+  --help            show help information
+  --model           the name of the model to use; defaults to \$OPENAI_MODEL
+  --system          the system "role" to use (e.g. "You are a helpful assistant.")
+  --prompt          the prompt to use (required)
+EOL
+
+    exit 0
+  fi
+
+  model=$(get-config --model "$@")
+  system=$(get-config --system "$@") || true
+  prompt=$(get-config --prompt "$@") || die "get-completion: expected --prompt"
+
+  if [ -z "$model" ]; then
+    model="$OPENAI_MODEL"
+  fi
+
+  messages=$(jq -n '[]')
+  messages=$(jq --arg x "$system" '. + [{"role": "system", "content": $x}]' <<< "$messages")
+  messages=$(jq --arg x "$prompt" '. + [{"role": "user", "content": $x}]' <<< "$messages")
+
+  payload=$(jq -n '{}')
+  payload=$(jq --arg x "$model" '. + {"model": $x}' <<< "$payload")
+  payload=$(jq --argjson x "$messages" '. + {"messages": $x}' <<< "$payload")
+
+  request https://api.openai.com/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -d "$payload"
+}
+
 main() {
   local options
 
