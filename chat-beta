@@ -748,7 +748,7 @@ chat-history-menu() {
   fi
 
   choice=$(
-    echo "${chats[@]}" \
+    printf "%s\n" "${chats[@]}" \
       | gum filter \
         --header "Conversation history" \
         --placeholder "Search" \
