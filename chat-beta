@@ -126,6 +126,29 @@ create-assistant() {
   jq -r '.id' <<< "$result"
 }
 
+modify-assistant() {
+  local name="$1"
+  local instructions="$2"
+  local description="$3"
+  local tools=()
+  local tool_args=()
+
+  # gum choose returns a space-separated list of selected tools, so we read it into an array
+  IFS=' ' read -r -a tools <<< "$4"
+
+  # Build the tool arguments
+  for tool in "${tools[@]}"; do
+    [[ -n "$tool" ]] && tool_args+=(--tool "$tool")
+  done
+
+  # Now include the tool arguments in the openai invocation
+  if ! result=$(openai modify-assistant --assistant "$ASSISTANT_ID" --name "$name" --instructions "$instructions" --description "$description" "${tool_args[@]}" 2>&1); then
+    die "$result"
+  fi
+
+  jq -r '.id' <<< "$result"
+}
+
 delete-assistant() {
   local result
 
@@ -257,6 +280,42 @@ add-assistant() {
 
   ASSISTANT_ID=$(create-assistant "$name" "$instructions" "$description" "$tools")
   ASSISTANT_NAME="$name"
+
+  save-selected-assistant
+}
+
+edit-assistant() {
+  local result
+
+  local name
+  local instructions
+  local description
+  local tools
+
+  local new_name
+  local new_instructions
+  local new_description
+  local new_tools
+
+  if ! result=$(openai get-assistant --assistant "$ASSISTANT_ID"); then
+    warn "error getting assistant"
+    die "$result"
+  fi
+
+  name=$(jq -r '.name' <<< "$result")
+  instructions=$(jq -r '.instructions' <<< "$result")
+  description=$(jq -r '.description' <<< "$result")
+  tools=$(jq -r '"{" + (.tools | join(",")) + "}"' <<< "$result")
+
+  new_name=$(gum input --prompt 'Enter a new name: ' --placeholder "$name") || true
+  new_instructions=$(gum input --prompt 'Modify instructions: ' --placeholder "$instructions") || true
+  new_description=$(gum input --prompt 'Modify description: ' --placeholder "$description") || true
+
+  new_tools="$(gum choose --header 'Update selected tools' --no-limit --selected "$tools" {none,code_interpreter,retrieval,function})" || true
+  new_tools=$(echo "$new_tools" | sed '/^none$/d;/^$/d')
+
+  ASSISTANT_ID=$(modify-assistant "$new_name" "$new_instructions" "$new_description" "$new_tools")
+  ASSISTANT_NAME="$new_name"
 
   save-selected-assistant
 }
@@ -596,7 +655,7 @@ assistant-menu() {
     choices+=("Create a new assistant")
 
     if [ -n "$ASSISTANT_ID" ]; then
-      choices+=("Delete $ASSISTANT_NAME")
+      choices+=('Edit' 'Delete')
     fi
 
     choices+=("Back")
@@ -617,7 +676,11 @@ assistant-menu() {
         add-assistant
         ;;
 
-      "Delete "*)
+      "Edit")
+        edit-assistant
+        ;;
+
+      "Delete")
         del-assistant
         ;;
 
@@ -638,31 +701,33 @@ chat-menu() {
     die "No assistant is selected"
   fi
 
-  if grep "^$ASSISTANT_ID:" "$CHAT_HISTORY_FILE" > /dev/null; then
-    choices+=(
-      "Start a new chat"
-      "Continue a previous chat with $ASSISTANT_NAME"
-    )
-    selected=$(gum choose --header "Chats" "${choices[@]}") \
-      || return 0
+  while true; do
+    if grep "^$ASSISTANT_ID:" "$CHAT_HISTORY_FILE" > /dev/null; then
+      choices=(
+        "Start a new chat"
+        "Continue a previous chat with $ASSISTANT_NAME"
+        "Back"
+      )
 
-    case "$selected" in
-      "")
-        return 0
-        ;;
+      selected=$(gum choose --header "Chats" "${choices[@]}") || true
 
-      "Start a new chat")
-        new-chat
-        ;;
+      case "$selected" in
+        "" | "Back")
+          break
+          ;;
 
-      "Continue a previous chat with $ASSISTANT_NAME")
-        chat-history-menu
-        ;;
-    esac
-  else
-    new-chat
-  fi
+        "Start a new chat")
+          new-chat
+          ;;
 
+        "Continue a previous chat with $ASSISTANT_NAME")
+          chat-history-menu
+          ;;
+      esac
+    else
+      new-chat
+    fi
+  done
 }
 
 chat-history-menu() {

@@ -426,9 +426,8 @@ cmd:create-assistant() {
   local description
   local model
   local payload
-
-  declare -a files
-  declare -a tools
+  local files=()
+  local tools=()
 
   if get-flag --help "$@"; then
     cmd-usage 'create-assistant' 'NAME' 'DESCRIPTION' 'INSTRUCTIONS' 'MODEL' 'FILE[]' 'META[]' 'TOOLS[]'
@@ -473,9 +472,8 @@ cmd:modify-assistant() {
   local description
   local model
   local payload
-
-  declare -a files
-  declare -a tools
+  local files=()
+  local tools=()
 
   if get-flag --help "$@"; then
     cmd-usage 'modify-assistant' 'ASSISTANT' 'NAME' 'DESCRIPTION' 'INSTRUCTIONS' 'MODEL' 'TOOLS[]' 'FILE[]' 'META[]'
