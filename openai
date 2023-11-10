@@ -65,6 +65,9 @@ _usage: $PROGRAM [OPTIONS]_
   * list-steps            list steps for a thread's run
   * get-step              get info about a thread's run step
 
+## Completions
+  * get-completion        generate a chat completion (non-streaming)
+
 _Each command has its own set of options. Run '$PROGRAM COMMAND --help' for
 more information._
 
@@ -182,8 +185,16 @@ get-config-multi() {
 }
 
 request() {
+  local args=("$@")
   local response
-  response=$(curl -s "$@") || die "API connection error"
+
+  response=$(
+    curl -s \
+      "${args[@]}" \
+      -H "Authorization: Bearer $OPENAI_API_KEY" \
+      -H "Content-Type: application/json"
+  ) || die "API connection error"
+
   response-ok "$response"
   echo "$response"
 }
@@ -258,8 +269,7 @@ EOL
     exit 0
   fi
 
-  request https://api.openai.com/v1/files \
-    -H "Authorization: Bearer $OPENAI_API_KEY"
+  request https://api.openai.com/v1/files
 }
 
 cmd:upload-file() {
@@ -284,7 +294,6 @@ EOL
   fi
 
   request https://api.openai.com/v1/files \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
     -F purpose="assistants" \
     -F file="@$file"
 }
@@ -306,9 +315,7 @@ EOL
 
   file=$(get-config --file "$@") || die "delete-file: expected --file"
 
-  request "https://api.openai.com/v1/files/$file" \
-    -X DELETE \
-    -H "Authorization: Bearer $OPENAI_API_KEY"
+  request "https://api.openai.com/v1/files/$file" -X DELETE
 }
 
 cmd:retrieve-file() {
@@ -328,8 +335,7 @@ EOL
 
   file=$(get-config --file "$@") || die "retrieve-file: expected --file"
 
-  request "https://api.openai.com/v1/files/$file" \
-    -H "Authorization: Bearer $OPENAI_API_KEY"
+  request "https://api.openai.com/v1/files/$file"
 }
 
 cmd:create-assistant() {
@@ -390,8 +396,6 @@ EOL
   fi
 
   request https://api.openai.com/v1/assistants \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "OpenAI-Beta: assistants=v1" \
     -d "$payload"
 }
@@ -457,8 +461,6 @@ EOL
   fi
 
   request "https://api.openai.com/v1/assistants/$assistant" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "OpenAI-Beta: assistants=v1" \
     -d "$payload"
 }
@@ -481,8 +483,6 @@ EOL
   assistant=$(get-config --assistant "$@") || die "get-assistant: expected --assistant"
 
   request "https://api.openai.com/v1/assistants/$assistant" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "OpenAI-Beta: assistants=v1"
 }
 
@@ -512,8 +512,6 @@ EOL
   endpoint=$(build-paginated-uri "https://api.openai.com/v1/assistants" "$@")
 
   request "$endpoint" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "OpenAI-Beta: assistants=v1"
 }
 
@@ -535,8 +533,6 @@ EOL
   assistant=$(get-config --assistant "$@") || die "delete-assistant: expected --assistant"
 
   request "https://api.openai.com/v1/assistants/$assistant" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "OpenAI-Beta: assistants=v1" \
     -X DELETE
 }
@@ -566,8 +562,6 @@ EOL
   payload=$(jq --arg x "$file" '. + {"file_id": $x}' <<< "$payload")
 
   request "https://api.openai.com/v1/assistants/$assistant/files" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H 'Content-Type: application/json' \
     -H 'OpenAI-Beta: assistants=v1' \
     -d "$payload"
 }
@@ -593,8 +587,6 @@ EOL
   file=$(get-config --file "$@") || die "get-assistant-file: expected --file"
 
   request "https://api.openai.com/v1/assistants/$assistant/files/$file" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H 'Content-Type: application/json' \
     -H 'OpenAI-Beta: assistants=v1'
 }
 
@@ -619,8 +611,6 @@ EOL
   file=$(get-config --file "$@") || die "get-assistant-file: expected --file"
 
   request "https://api.openai.com/v1/assistants/$assistant/files/$file" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H 'Content-Type: application/json' \
     -H 'OpenAI-Beta: assistants=v1' \
     -X DELETE
 }
@@ -652,10 +642,7 @@ EOL
   assistant=$(get-config --assistant "$@") || die "list-assistant-files: expected --assistant"
   endpoint=$(build-paginated-uri "https://api.openai.com/v1/assistants/$assistant/files" "$@")
 
-  request "$endpoint" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H "OpenAI-Beta: assistants=v1"
+  request "$endpoint" -H "OpenAI-Beta: assistants=v1"
 }
 
 cmd:start-thread() {
@@ -676,11 +663,7 @@ EOL
   payload=$(jq -n '{}')
   payload-meta payload "$@"
 
-  request https://api.openai.com/v1/threads \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H "OpenAI-Beta: assistants=v1" \
-    -d "$payload"
+  request https://api.openai.com/v1/threads -H "OpenAI-Beta: assistants=v1" -d "$payload"
 }
 
 cmd:modify-thread() {
@@ -705,11 +688,7 @@ EOL
   payload=$(jq -n '{}')
   payload-meta payload "$@"
 
-  request "https://api.openai.com/v1/threads/$thread" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H "OpenAI-Beta: assistants=v1" \
-    -d "$payload"
+  request "https://api.openai.com/v1/threads/$thread" -H "OpenAI-Beta: assistants=v1" -d "$payload"
 }
 
 cmd:delete-thread() {
@@ -729,11 +708,7 @@ EOL
 
   thread=$(get-config --thread "$@") || die "delete-assistant: expected --thread"
 
-  request "https://api.openai.com/v1/threads/$thread" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H "OpenAI-Beta: assistants=v1" \
-    -X DELETE
+  request "https://api.openai.com/v1/threads/$thread" -H "OpenAI-Beta: assistants=v1" -X DELETE
 }
 
 cmd:get-thread() {
@@ -753,10 +728,7 @@ EOL
 
   thread=$(get-config --thread "$@") || die "delete-assistant: expected --thread"
 
-  request "https://api.openai.com/v1/threads/$thread" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H "OpenAI-Beta: assistants=v1"
+  request "https://api.openai.com/v1/threads/$thread" -H "OpenAI-Beta: assistants=v1"
 }
 
 cmd:add-message() {
@@ -791,11 +763,7 @@ EOL
     payload=$(jq --argjson x "$(printf '%s\n' "${files[@]}" | jq -R . | jq -s .)" '. + {file_ids: $x}' <<< "$payload")
   fi
 
-  request "https://api.openai.com/v1/threads/$thread/messages" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H "OpenAI-Beta: assistants=v1" \
-    -d "$payload"
+  request "https://api.openai.com/v1/threads/$thread/messages" -H "OpenAI-Beta: assistants=v1" -d "$payload"
 }
 
 cmd:modify-message() {
@@ -823,11 +791,7 @@ EOL
   payload=$(jq -n '{}')
   payload-meta payload "$@"
 
-  request "https://api.openai.com/v1/threads/$thread/messages/$message" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H "OpenAI-Beta: assistants=v1" \
-    -d "$payload"
+  request "https://api.openai.com/v1/threads/$thread/messages/$message" -H "OpenAI-Beta: assistants=v1" -d "$payload"
 }
 
 cmd:get-message() {
@@ -850,10 +814,7 @@ EOL
   thread=$(get-config --thread "$@") || die "get-message: expected --thread"
   message=$(get-config --message "$@") || die "get-message: expected --message"
 
-  request "https://api.openai.com/v1/threads/$thread/messages/$message" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H "OpenAI-Beta: assistants=v1"
+  request "https://api.openai.com/v1/threads/$thread/messages/$message" -H "OpenAI-Beta: assistants=v1"
 }
 
 cmd:list-messages() {
@@ -882,10 +843,7 @@ EOL
   thread=$(get-config --thread "$@") || die "add-message: expected --thread"
   endpoint=$(build-paginated-uri "https://api.openai.com/v1/threads/$thread/messages" "$@")
 
-  request "$endpoint" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H "OpenAI-Beta: assistants=v1"
+  request "$endpoint" -H "OpenAI-Beta: assistants=v1"
 }
 
 cmd:run-thread() {
@@ -908,11 +866,7 @@ EOL
   assistant=$(get-config --assistant "$@") || die "run-thread: expected --assistant"
   thread=$(get-config --thread "$@") || die "run-thread: expected --thread"
 
-  request "https://api.openai.com/v1/threads/$thread/runs" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H 'Content-Type: application/json' \
-    -H 'OpenAI-Beta: assistants=v1' \
-    -d "{\"assistant_id\": \"$assistant\"}"
+  request "https://api.openai.com/v1/threads/$thread/runs" -H 'OpenAI-Beta: assistants=v1' -d "{\"assistant_id\": \"$assistant\"}"
 }
 
 cmd:list-runs() {
@@ -932,10 +886,7 @@ EOL
 
   thread=$(get-config --thread "$@") || die "list-runs: expected --thread"
 
-  request "https://api.openai.com/v1/threads/$thread/runs" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H 'Content-Type: application/json' \
-    -H 'OpenAI-Beta: assistants=v1'
+  request "https://api.openai.com/v1/threads/$thread/runs" -H 'OpenAI-Beta: assistants=v1'
 }
 
 cmd:get-run() {
@@ -959,7 +910,6 @@ EOL
   run=$(get-config --run "$@") || die "get-run: expected --run"
 
   request "https://api.openai.com/v1/threads/$thread/runs/$run" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H 'OpenAI-Beta: assistants=v1'
 }
 
@@ -988,11 +938,7 @@ EOL
   payload=$(jq -n '{}')
   payload-meta payload "$@"
 
-  request "https://api.openai.com/v1/threads/$thread/runs/$run" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H 'Content-Type: application/json' \
-    -H 'OpenAI-Beta: assistants=v1' \
-    -d "$payload"
+  request "https://api.openai.com/v1/threads/$thread/runs/$run" -H 'OpenAI-Beta: assistants=v1' -d "$payload"
 }
 
 cmd:cancel-run() {
@@ -1016,7 +962,6 @@ EOL
   run=$(get-config --run "$@") || die "cancel-run: expected --run"
 
   request "https://api.openai.com/v1/threads/$thread/runs/$run/cancel" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H 'OpenAI-Beta: assistants=v1' \
     -X POST
 }
@@ -1041,10 +986,7 @@ EOL
   thread=$(get-config --thread "$@") || die "list-steps: expected --thread"
   run=$(get-config --run "$@") || die "list-steps: expected --run"
 
-  request "https://api.openai.com/v1/threads/$thread/runs/$run/steps" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H 'Content-Type: application/json' \
-    -H 'OpenAI-Beta: assistants=v1'
+  request "https://api.openai.com/v1/threads/$thread/runs/$run/steps" -H 'OpenAI-Beta: assistants=v1'
 }
 
 cmd:get-step() {
@@ -1070,10 +1012,7 @@ EOL
   run=$(get-config --run "$@") || die "cancel-run: expected --run"
   step=$(get-config --step "$@") || die "cancel-run: expected --step"
 
-  request "https://api.openai.com/v1/threads/$thread/runs/$run/steps/$step" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H 'Content-Type: application/json' \
-    -H 'OpenAI-Beta: assistants=v1'
+  request "https://api.openai.com/v1/threads/$thread/runs/$run/steps/$step" -H 'OpenAI-Beta: assistants=v1'
 }
 
 cmd:get-completion() {
@@ -1097,7 +1036,7 @@ EOL
     exit 0
   fi
 
-  model=$(get-config --model "$@")
+  model=$(get-config --model "$@") || true
   system=$(get-config --system "$@") || true
   prompt=$(get-config --prompt "$@") || die "get-completion: expected --prompt"
 
@@ -1113,10 +1052,7 @@ EOL
   payload=$(jq --arg x "$model" '. + {"model": $x}' <<< "$payload")
   payload=$(jq --argjson x "$messages" '. + {"messages": $x}' <<< "$payload")
 
-  request https://api.openai.com/v1/chat/completions \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -d "$payload"
+  request https://api.openai.com/v1/chat/completions -d "$payload"
 }
 
 main() {
