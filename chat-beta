@@ -126,6 +126,20 @@ create-assistant() {
   jq -r '.id' <<< "$result"
 }
 
+delete-assistant() {
+  local result
+
+  if ! result=$(openai delete-assistant --assistant "$ASSISTANT_ID"); then
+    warn "error deleting assistant"
+    die "$result"
+  fi
+
+  ASSISTANT_ID=""
+  ASSISTANT_NAME=""
+
+  return 0
+}
+
 start-thread() {
   local result
   local id
@@ -245,6 +259,21 @@ add-assistant() {
   ASSISTANT_NAME="$name"
 
   save-selected-assistant
+}
+
+del-assistant() {
+  local old_id="$ASSISTANT_ID"
+  local tmp
+
+  gum confirm "Delete assistant $ASSISTANT_NAME (id: $ASSISTANT_ID)?" || return 0
+  delete-assistant || return 0
+
+  tmp=$(mktemp)
+  if grep -v "^$old_id:" "$CHAT_HISTORY_FILE" > "$tmp"; then
+    mv "$CHAT_HISTORY_FILE" "$CHAT_HISTORY_FILE.bak"
+    mv "$tmp" "$CHAT_HISTORY_FILE"
+    rm "$CHAT_HISTORY_FILE.bak"
+  fi
 }
 
 save-selected-assistant() {
@@ -554,62 +583,86 @@ list-chats() {
 # ------------------------------------------------------------------------------
 assistant-menu() {
   local choices=()
+  local header
   local selected
 
-  while IFS=':' read -r id name; do
-    choices+=("$name ($(gum style --faint "id: $id"))")
-  done < <(list-assistants)
+  while true; do
+    choices=()
 
-  choices+=("Create a new assistant")
+    while IFS=':' read -r id name; do
+      choices+=("$name ($(gum style --faint "id: $id"))")
+    done < <(list-assistants)
 
-  selected=$(gum choose --header "Select an assistant" "${choices[@]}") || return 0
+    choices+=("Create a new assistant")
 
-  case "$selected" in
-    "")
-      return 0
-      ;;
+    if [ -n "$ASSISTANT_ID" ]; then
+      choices+=("Delete $ASSISTANT_NAME")
+    fi
 
-    "Create a new assistant")
-      add-assistant
-      ;;
+    choices+=("Back")
 
-    *)
-      ASSISTANT_ID="$(echo "$selected" | sed -E 's/.*id: ([^)]+).*/\1/')"
-      ASSISTANT_NAME="$(echo "$selected" | sed -E 's/^(.*) \(id: [^)]+\)$/\1/')"
-      save-selected-assistant
-      ;;
-  esac
+    header="Assistants"
+    if [ -n "$ASSISTANT_ID" ]; then
+      header="$header (selected: $ASSISTANT_NAME)"
+    fi
+
+    selected=$(gum choose --header "$header" "${choices[@]}") || return 0
+
+    case "$selected" in
+      "" | "Back")
+        break
+        ;;
+
+      "Create a new assistant")
+        add-assistant
+        ;;
+
+      "Delete "*)
+        del-assistant
+        ;;
+
+      *)
+        ASSISTANT_ID="$(echo "$selected" | sed -E 's/.*id: ([^)]+).*/\1/')"
+        ASSISTANT_NAME="$(echo "$selected" | sed -E 's/^(.*) \(id: [^)]+\)$/\1/')"
+        save-selected-assistant
+        ;;
+    esac
+  done
 }
 
 chat-menu() {
-  local choices
+  local choices=()
   local selected
 
   if [ -z "$ASSISTANT_ID" ]; then
     die "No assistant is selected"
   fi
 
-  choices=(
-    "Start a new chat"
-    "Continue a previous chat with $ASSISTANT_NAME"
-  )
+  if grep "^$ASSISTANT_ID:" "$CHAT_HISTORY_FILE" > /dev/null; then
+    choices+=(
+      "Start a new chat"
+      "Continue a previous chat with $ASSISTANT_NAME"
+    )
+    selected=$(gum choose --header "Chats" "${choices[@]}") \
+      || return 0
 
-  selected=$(gum choose --header "Chats" "${choices[@]}") \
-    || return 0
+    case "$selected" in
+      "")
+        return 0
+        ;;
 
-  case "$selected" in
-    "")
-      return 0
-      ;;
+      "Start a new chat")
+        new-chat
+        ;;
 
-    "Start a new chat")
-      new-chat
-      ;;
+      "Continue a previous chat with $ASSISTANT_NAME")
+        chat-history-menu
+        ;;
+    esac
+  else
+    new-chat
+  fi
 
-    "Continue a previous chat with $ASSISTANT_NAME")
-      chat-history-menu
-      ;;
-  esac
 }
 
 chat-history-menu() {
@@ -663,7 +716,7 @@ main-menu() {
     fi
 
     choices+=(
-      "Select an assistant"
+      "Assistants"
       "Quit"
     )
 
@@ -675,7 +728,7 @@ main-menu() {
         continue
         ;;
 
-      "Select an assistant")
+      "Assistants")
         assistant-menu
         ;;
 
