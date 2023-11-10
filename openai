@@ -84,6 +84,115 @@ EOL
   exit "$exit_code"
 }
 
+# ------------------------------------------------------------------------------
+# This little work of ba[t]sh[it] craziness was written by ChatGPT, and is
+# conclusive proof that garbage in == garbage out.
+# ------------------------------------------------------------------------------
+cmd-usage() {
+  local cmd="$1"
+  local options=('--help' 'show help information' "${@:2}")
+  local usage
+
+  usage="_usage: $PROGRAM $cmd [OPTIONS]_
+
+# Options"
+
+  # Check for placeholders and replace them with common options
+  for ((i = 0; i < ${#options[@]}; i++)); do
+    case "${options[i]}" in
+      PAGINATION)
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=(
+          '--order' 'asc or desc (by data[].created_at)'
+          '--limit' 'the number of entries to return (default: 20)'
+          '--after' 'a cursor to use for pagination (based on data[].id)'
+          '--before' 'a cursor to use for pagination (based on data[].id)'
+        )
+        ;;
+
+      ASSISTANT)
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--assistant' 'the id of the assistant (required)')
+        ;;
+
+      THREAD)
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--thread' 'the id of the thread (required)')
+        ;;
+
+      RUN)
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--run' 'the id of the run (required)')
+        ;;
+
+      STEP)
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--step' 'the id of the step (required)')
+        ;;
+
+      MESSAGE)
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--message' 'the id of the message (required)')
+        ;;
+
+      INSTRUCTIONS)
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--instructions' 'the instructions for the assistant')
+        ;;
+
+      NAME)
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--name' 'the name of the assistant (required)')
+        ;;
+
+      DESCRIPTION)
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--description' 'the description of the assistant')
+        ;;
+
+      FILE)
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--file' 'the id of the file (required)')
+        ;;
+
+      CONTENT)
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--content' 'the message to add (required)')
+        ;;
+
+      'FILE[]')
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--file' 'the id of files to include; can be specified multiple times')
+        ;;
+
+      'META[]')
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--meta' 'the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)')
+        ;;
+
+      'TOOLS[]')
+        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
+        options+=('--tools' 'the name of tools to enable; can be specified multiple times; current options are "code_interpreter", "retrieval", and "function"')
+        ;;
+    esac
+  done
+
+  while IFS= read -r line; do
+    # Replace non-breaking spaces back to normal spaces
+    line="${line//$'\u00A0'/ }"
+    usage+=$'\n'"$line"
+  done < <(
+    for ((i = 0; i < ${#options[@]}; i += 2)); do
+      # Replace spaces in explanations with non-breaking spaces
+      local explanation=${options[i + 1]// /$'\u00A0'}
+      printf "  * %s\t%s\n" "${options[i]}" "$explanation"
+    done | column -t
+  )
+
+  printf '%s\n' "$usage" | gum format
+  exit 0
+}
+
 info() {
   gum style --foreground="#00FF00" "$PROGRAM: $*" >&2
 }
@@ -199,6 +308,10 @@ request() {
   echo "$response"
 }
 
+request-beta() {
+  request "$@" -H "OpenAI-Beta: assistants=v1"
+}
+
 response-ok() {
   if jq -e 'has("error")' <<< "$1" > /dev/null; then
     die "$(echo "$1" | jq -r '.error.message')"
@@ -209,7 +322,7 @@ response-ok() {
 
 payload-meta() {
   local -n payload_var="$1"
-  shift # Shift the arguments left to remove the first one.
+  shift
 
   declare -a metas
   get-config-multi --meta metas "$@" || true
@@ -259,14 +372,7 @@ build-paginated-uri() {
 # ------------------------------------------------------------------------------
 cmd:list-files() {
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM list-files
-
-options:
-  --help            show help information
-EOL
-
-    exit 0
+    cmd-usage 'list-files'
   fi
 
   request https://api.openai.com/v1/files
@@ -276,15 +382,7 @@ cmd:upload-file() {
   local file
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM upload-file
-
-options:
-  --help            show help information
-  --file            the file to upload (required)
-EOL
-
-    exit 0
+    cmd-usage 'upload-file' 'FILE'
   fi
 
   file=$(get-config --file "$@") || die "upload-file: expected --file"
@@ -302,15 +400,7 @@ cmd:delete-file() {
   local file
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM delete-file
-
-options:
-  --help            show help information
-  --file            the id of the file (required)
-EOL
-
-    exit 0
+    cmd-usage 'delete-file' 'FILE'
   fi
 
   file=$(get-config --file "$@") || die "delete-file: expected --file"
@@ -322,15 +412,7 @@ cmd:retrieve-file() {
   local file
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM retrieve-file
-
-options:
-  --help            show help information
-  --file            the id of the file (required)
-EOL
-
-    exit 0
+    cmd-usage 'retrieve-file' 'FILE'
   fi
 
   file=$(get-config --file "$@") || die "retrieve-file: expected --file"
@@ -349,21 +431,7 @@ cmd:create-assistant() {
   declare -a tools
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM create-assistant [OPTIONS]
-
-options:
-  --help            show help information
-  --name            the name of the assistant (required)
-  --instructions    the instructions for the assistant (required)
-  --description     the description of the assistant
-  --model           the name of the model to use; defaults to \$OPENAI_MODEL
-  --tools           the name of tools to enable; can be specified multiple times; current options are 'code_interpreter', 'retrieval', and 'function'
-  --file            the id of files to include; can be specified multiple times
-  --meta            the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)
-EOL
-
-    exit 0
+    cmd-usage 'create-assistant' 'NAME' 'DESCRIPTION' 'INSTRUCTIONS' 'MODEL' 'FILE[]' 'META[]' 'TOOLS[]'
   fi
 
   name=$(get-config --name "$@") || die "create-assistant: expected --name"
@@ -395,9 +463,7 @@ EOL
     payload=$(jq --argjson tools "$(printf '%s\n' "${tools[@]}" | jq -R '{type: .}' | jq -s .)" '. + {tools: $tools}' <<< "$payload")
   fi
 
-  request https://api.openai.com/v1/assistants \
-    -H "OpenAI-Beta: assistants=v1" \
-    -d "$payload"
+  request-beta https://api.openai.com/v1/assistants -d "$payload"
 }
 
 cmd:modify-assistant() {
@@ -412,22 +478,7 @@ cmd:modify-assistant() {
   declare -a tools
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM modify-assistant [OPTIONS]
-
-options:
-  --help            show help information
-  --assistant       the id of the assistant (required)
-  --name            the name of the assistant
-  --instructions    the instructions for the assistant
-  --description     the description of the assistant
-  --model           the name of the model to use; defaults to \$OPENAI_MODEL
-  --tools           the name of tools to enable; can be specified multiple times; current options are 'code_interpreter', 'retrieval', and 'function'
-  --file            the id of files to include; can be specified multiple times
-  --meta            the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)
-EOL
-
-    exit 0
+    cmd-usage 'modify-assistant' 'ASSISTANT' 'NAME' 'DESCRIPTION' 'INSTRUCTIONS' 'MODEL' 'TOOLS[]' 'FILE[]' 'META[]'
   fi
 
   assistant=$(get-config --assistant "$@") || die "modify-assistant: expected --assistant"
@@ -460,30 +511,19 @@ EOL
     payload=$(jq --argjson tools "$(printf '%s\n' "${tools[@]}" | jq -R '{type: .}' | jq -s .)" '. + {tools: $tools}' <<< "$payload")
   fi
 
-  request "https://api.openai.com/v1/assistants/$assistant" \
-    -H "OpenAI-Beta: assistants=v1" \
-    -d "$payload"
+  request-beta "https://api.openai.com/v1/assistants/$assistant" -d "$payload"
 }
 
 cmd:get-assistant() {
   local assistant
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM get-assistant [OPTIONS]
-
-options:
-  --help            show help information
-  --assistant       the id of the assistant (required)
-EOL
-
-    exit 0
+    cmd-usage 'get-assistant' 'ASSISTANT'
   fi
 
   assistant=$(get-config --assistant "$@") || die "get-assistant: expected --assistant"
 
-  request "https://api.openai.com/v1/assistants/$assistant" \
-    -H "OpenAI-Beta: assistants=v1"
+  request-beta "https://api.openai.com/v1/assistants/$assistant"
 }
 
 cmd:list-assistants() {
@@ -495,46 +535,22 @@ cmd:list-assistants() {
   local endpoint
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM list-assistants
-
-options:
-  --help            show help information
-  --order           asc or desc (by data[].created_at)
-  --limit           the number of assistants to return (default: 20)
-  --after           a cursor to use for pagination (based on data[].id)
-  --before          a cursor to use for pagination (based on data[].id)
-EOL
-
-    exit 0
+    cmd-usage 'list-assistants' 'PAGINATION'
   fi
 
   endpoint=$(build-paginated-uri "https://api.openai.com/v1/assistants" "$@")
-
-  request "$endpoint" \
-    -H "OpenAI-Beta: assistants=v1"
+  request-beta "$endpoint"
 }
 
 cmd:delete-assistant() {
   local assistant
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM delete-assistant [OPTIONS]
-
-options:
-  --help            show help information
-  --assistant       the id of the assistant (required)
-EOL
-
-    exit 0
+    cmd-usage 'delete-assistant' 'ASSISTANT'
   fi
 
   assistant=$(get-config --assistant "$@") || die "delete-assistant: expected --assistant"
-
-  request "https://api.openai.com/v1/assistants/$assistant" \
-    -H "OpenAI-Beta: assistants=v1" \
-    -X DELETE
+  request-beta "https://api.openai.com/v1/assistants/$assistant" -X DELETE
 }
 
 cmd:add-assistant-file() {
@@ -543,16 +559,7 @@ cmd:add-assistant-file() {
   local payload
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM add-assistant-file [OPTIONS]
-
-options:
-  --help            show help information
-  --assistant       the id of the assistant (required)
-  --file            the id of the file (required)
-EOL
-
-    exit 0
+    cmd-usage 'add-assistant-file' 'ASSISTANT' 'FILE'
   fi
 
   assistant=$(get-config --assistant "$@") || die "add-assistant-file: expected --assistant"
@@ -561,9 +568,7 @@ EOL
   payload=$(jq -n '{}')
   payload=$(jq --arg x "$file" '. + {"file_id": $x}' <<< "$payload")
 
-  request "https://api.openai.com/v1/assistants/$assistant/files" \
-    -H 'OpenAI-Beta: assistants=v1' \
-    -d "$payload"
+  request-beta "https://api.openai.com/v1/assistants/$assistant/files" -d "$payload"
 }
 
 cmd:get-assistant-file() {
@@ -571,23 +576,13 @@ cmd:get-assistant-file() {
   local file
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM get-assistant-file [OPTIONS]
-
-options:
-  --help            show help information
-  --assistant       the id of the assistant (required)
-  --file            the id of the file (required)
-EOL
-
-    exit 0
+    cmd-usage 'get-assistant-file' 'ASSISTANT' 'FILE'
   fi
 
   assistant=$(get-config --assistant "$@") || die "get-assistant-file: expected --assistant"
   file=$(get-config --file "$@") || die "get-assistant-file: expected --file"
 
-  request "https://api.openai.com/v1/assistants/$assistant/files/$file" \
-    -H 'OpenAI-Beta: assistants=v1'
+  request-beta "https://api.openai.com/v1/assistants/$assistant/files/$file"
 }
 
 cmd:delete-assistant-file() {
@@ -595,24 +590,13 @@ cmd:delete-assistant-file() {
   local file
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM delete-assistant-file [OPTIONS]
-
-options:
-  --help            show help information
-  --assistant       the id of the assistant (required)
-  --file            the id of the file (required)
-EOL
-
-    exit 0
+    cmd-usage 'delete-assistant-file' 'ASSISTANT' 'FILE'
   fi
 
   assistant=$(get-config --assistant "$@") || die "get-assistant-file: expected --assistant"
   file=$(get-config --file "$@") || die "get-assistant-file: expected --file"
 
-  request "https://api.openai.com/v1/assistants/$assistant/files/$file" \
-    -H 'OpenAI-Beta: assistants=v1' \
-    -X DELETE
+  request-beta "https://api.openai.com/v1/assistants/$assistant/files/$file" -X DELETE
 }
 
 cmd:list-assistant-files() {
@@ -625,45 +609,26 @@ cmd:list-assistant-files() {
   local endpoint
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM list-assistant-files
-
-options:
-  --help            show help information
-  --order           asc or desc (by data[].created_at)
-  --limit           the number of entries to return (default: 20)
-  --after           a cursor to use for pagination (based on data[].id)
-  --before          a cursor to use for pagination (based on data[].id)
-EOL
-
-    exit 0
+    cmd-usage 'list-assistant-files' 'PAGINATION' 'ASSISTANT'
   fi
 
   assistant=$(get-config --assistant "$@") || die "list-assistant-files: expected --assistant"
   endpoint=$(build-paginated-uri "https://api.openai.com/v1/assistants/$assistant/files" "$@")
 
-  request "$endpoint" -H "OpenAI-Beta: assistants=v1"
+  request-beta "$endpoint"
 }
 
 cmd:start-thread() {
   local payload
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM start-thread [OPTIONS]
-
-options:
-  --help            show help information
-  --meta            the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)
-EOL
-
-    exit 0
+    cmd-usage 'start-thread' 'META[]'
   fi
 
   payload=$(jq -n '{}')
   payload-meta payload "$@"
 
-  request https://api.openai.com/v1/threads -H "OpenAI-Beta: assistants=v1" -d "$payload"
+  request-beta https://api.openai.com/v1/threads -d "$payload"
 }
 
 cmd:modify-thread() {
@@ -671,16 +636,7 @@ cmd:modify-thread() {
   local payload
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM modify-thread [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-  --meta            the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)
-EOL
-
-    exit 0
+    cmd-usage 'modify-thread' 'THREAD' 'META[]'
   fi
 
   thread=$(get-config --thread "$@") || die "modify-thread: expected --thread"
@@ -688,47 +644,31 @@ EOL
   payload=$(jq -n '{}')
   payload-meta payload "$@"
 
-  request "https://api.openai.com/v1/threads/$thread" -H "OpenAI-Beta: assistants=v1" -d "$payload"
+  request-beta "https://api.openai.com/v1/threads/$thread" -d "$payload"
 }
 
 cmd:delete-thread() {
   local thread
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM delete-thread [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-EOL
-
-    exit 0
+    cmd-usage 'delete-thread' 'THREAD'
   fi
 
   thread=$(get-config --thread "$@") || die "delete-assistant: expected --thread"
 
-  request "https://api.openai.com/v1/threads/$thread" -H "OpenAI-Beta: assistants=v1" -X DELETE
+  request-beta "https://api.openai.com/v1/threads/$thread" -X DELETE
 }
 
 cmd:get-thread() {
   local thread
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM get-thread [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-EOL
-
-    exit 0
+    cmd-usage 'get-thread' 'THREAD'
   fi
 
   thread=$(get-config --thread "$@") || die "delete-assistant: expected --thread"
 
-  request "https://api.openai.com/v1/threads/$thread" -H "OpenAI-Beta: assistants=v1"
+  request-beta "https://api.openai.com/v1/threads/$thread"
 }
 
 cmd:add-message() {
@@ -739,17 +679,7 @@ cmd:add-message() {
   declare -a files
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM add-message [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-  --content         the message to add (required)
-  --file            the id of files to include; can be specified multiple times
-EOL
-
-    exit 0
+    cmd-usage 'add-message' 'THREAD' 'FILE[]' 'CONTENT'
   fi
 
   thread=$(get-config --thread "$@") || die "add-message: expected --thread"
@@ -763,7 +693,7 @@ EOL
     payload=$(jq --argjson x "$(printf '%s\n' "${files[@]}" | jq -R . | jq -s .)" '. + {file_ids: $x}' <<< "$payload")
   fi
 
-  request "https://api.openai.com/v1/threads/$thread/messages" -H "OpenAI-Beta: assistants=v1" -d "$payload"
+  request-beta "https://api.openai.com/v1/threads/$thread/messages" -d "$payload"
 }
 
 cmd:modify-message() {
@@ -772,17 +702,7 @@ cmd:modify-message() {
   local payload
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM modify-message [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-  --message         the id of the message (required)
-  --meta            the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)
-EOL
-
-    exit 0
+    cmd-usage 'modify-message' 'THREAD' 'MESSAGE' 'META[]'
   fi
 
   thread=$(get-config --thread "$@") || die "modify-message: expected --thread"
@@ -791,7 +711,7 @@ EOL
   payload=$(jq -n '{}')
   payload-meta payload "$@"
 
-  request "https://api.openai.com/v1/threads/$thread/messages/$message" -H "OpenAI-Beta: assistants=v1" -d "$payload"
+  request-beta "https://api.openai.com/v1/threads/$thread/messages/$message" -d "$payload"
 }
 
 cmd:get-message() {
@@ -799,22 +719,13 @@ cmd:get-message() {
   local message
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM get-message [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-  --message         the id of the message (required)
-EOL
-
-    exit 0
+    cmd-usage 'get-message' 'THREAD' 'MESSAGE'
   fi
 
   thread=$(get-config --thread "$@") || die "get-message: expected --thread"
   message=$(get-config --message "$@") || die "get-message: expected --message"
 
-  request "https://api.openai.com/v1/threads/$thread/messages/$message" -H "OpenAI-Beta: assistants=v1"
+  request-beta "https://api.openai.com/v1/threads/$thread/messages/$message"
 }
 
 cmd:list-messages() {
@@ -825,25 +736,13 @@ cmd:list-messages() {
   local before
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM list-messages [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-  --order           asc or desc (by data[].created_at)
-  --limit           the number of entries to return (default: 20)
-  --after           a cursor to use for pagination (based on data[].id)
-  --before          a cursor to use for pagination (based on data[].id)
-EOL
-
-    exit 0
+    cmd-usage 'list-messages' 'PAGINATION' 'THREAD'
   fi
 
   thread=$(get-config --thread "$@") || die "add-message: expected --thread"
   endpoint=$(build-paginated-uri "https://api.openai.com/v1/threads/$thread/messages" "$@")
 
-  request "$endpoint" -H "OpenAI-Beta: assistants=v1"
+  request-beta "$endpoint"
 }
 
 cmd:run-thread() {
@@ -851,42 +750,25 @@ cmd:run-thread() {
   local thread
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM run-thread [OPTIONS]
-
-options:
-  --help            show help information
-  --assistant       the id of the assistant (required)
-  --thread          the id of the thread (required)
-EOL
-
-    exit 0
+    cmd-usage 'run-thread' 'ASSISTANT' 'THREAD'
   fi
 
   assistant=$(get-config --assistant "$@") || die "run-thread: expected --assistant"
   thread=$(get-config --thread "$@") || die "run-thread: expected --thread"
 
-  request "https://api.openai.com/v1/threads/$thread/runs" -H 'OpenAI-Beta: assistants=v1' -d "{\"assistant_id\": \"$assistant\"}"
+  request-beta "https://api.openai.com/v1/threads/$thread/runs" \
+    -d "{\"assistant_id\": \"$assistant\"}"
 }
 
 cmd:list-runs() {
   local thread
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM list-runs [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-EOL
-
-    exit 0
+    cmd-usage 'list-runs' 'THREAD'
   fi
 
   thread=$(get-config --thread "$@") || die "list-runs: expected --thread"
-
-  request "https://api.openai.com/v1/threads/$thread/runs" -H 'OpenAI-Beta: assistants=v1'
+  request-beta "https://api.openai.com/v1/threads/$thread/runs"
 }
 
 cmd:get-run() {
@@ -894,23 +776,13 @@ cmd:get-run() {
   local run
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM get-run [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-  --run             the id of the run (required)
-EOL
-
-    exit 0
+    cmd-usage 'get-run' 'THREAD' 'RUN'
   fi
 
   thread=$(get-config --thread "$@") || die "get-run: expected --thread"
   run=$(get-config --run "$@") || die "get-run: expected --run"
 
-  request "https://api.openai.com/v1/threads/$thread/runs/$run" \
-    -H 'OpenAI-Beta: assistants=v1'
+  request-beta "https://api.openai.com/v1/threads/$thread/runs/$run"
 }
 
 cmd:modify-run() {
@@ -919,17 +791,7 @@ cmd:modify-run() {
   local payload
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM modify-run [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-  --run             the id of the run (required)
-  --meta            the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)
-EOL
-
-    exit 0
+    cmd-usage 'modify-run' 'THREAD' 'RUN' 'META[]'
   fi
 
   thread=$(get-config --thread "$@") || die "get-run: expected --thread"
@@ -938,7 +800,7 @@ EOL
   payload=$(jq -n '{}')
   payload-meta payload "$@"
 
-  request "https://api.openai.com/v1/threads/$thread/runs/$run" -H 'OpenAI-Beta: assistants=v1' -d "$payload"
+  request-beta "https://api.openai.com/v1/threads/$thread/runs/$run" -d "$payload"
 }
 
 cmd:cancel-run() {
@@ -946,24 +808,13 @@ cmd:cancel-run() {
   local run
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM cancel-run [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-  --run             the id of the run (required)
-EOL
-
-    exit 0
+    cmd-usage 'cancel-run' 'THREAD' 'RUN'
   fi
 
   thread=$(get-config --thread "$@") || die "cancel-run: expected --thread"
   run=$(get-config --run "$@") || die "cancel-run: expected --run"
 
-  request "https://api.openai.com/v1/threads/$thread/runs/$run/cancel" \
-    -H 'OpenAI-Beta: assistants=v1' \
-    -X POST
+  request-beta "https://api.openai.com/v1/threads/$thread/runs/$run/cancel" -X POST
 }
 
 cmd:list-steps() {
@@ -971,22 +822,13 @@ cmd:list-steps() {
   local run
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM list-steps [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-  --run             the id of the run (required)
-EOL
-
-    exit 0
+    cmd-usage 'list-steps' 'THREAD' 'RUN'
   fi
 
   thread=$(get-config --thread "$@") || die "list-steps: expected --thread"
   run=$(get-config --run "$@") || die "list-steps: expected --run"
 
-  request "https://api.openai.com/v1/threads/$thread/runs/$run/steps" -H 'OpenAI-Beta: assistants=v1'
+  request-beta "https://api.openai.com/v1/threads/$thread/runs/$run/steps"
 }
 
 cmd:get-step() {
@@ -995,24 +837,14 @@ cmd:get-step() {
   local step
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM get-step [OPTIONS]
-
-options:
-  --help            show help information
-  --thread          the id of the thread (required)
-  --run             the id of the run (required)
-  --step            the id of the step (required)
-EOL
-
-    exit 0
+    cmd-usage 'get-step' 'THREAD' 'RUN' 'STEP'
   fi
 
   thread=$(get-config --thread "$@") || die "cancel-run: expected --thread"
   run=$(get-config --run "$@") || die "cancel-run: expected --run"
   step=$(get-config --step "$@") || die "cancel-run: expected --step"
 
-  request "https://api.openai.com/v1/threads/$thread/runs/$run/steps/$step" -H 'OpenAI-Beta: assistants=v1'
+  request-beta "https://api.openai.com/v1/threads/$thread/runs/$run/steps/$step"
 }
 
 cmd:get-completion() {
@@ -1023,17 +855,9 @@ cmd:get-completion() {
   local payload
 
   if get-flag --help "$@"; then
-    cat << EOL
-usage: $PROGRAM get-completion [OPTIONS]
-
-options:
-  --help            show help information
-  --model           the name of the model to use; defaults to \$OPENAI_MODEL
-  --system          the system "role" to use (e.g. "You are a helpful assistant.")
-  --prompt          the prompt to use (required)
-EOL
-
-    exit 0
+    cmd-usage 'get-completion' 'MODEL' \
+      '--system' 'the system "role" to use (e.g. "You are a helpful assistant.")' \
+      '--prompt' 'the prompt to use (required)'
   fi
 
   model=$(get-config --model "$@") || true
@@ -1078,6 +902,7 @@ main() {
   if get-flag --help "$@"; then
     usage 0
   fi
+
 }
 
 main "$@"
