@@ -57,6 +57,11 @@ validate-env() {
   return 0
 }
 
+info() {
+  local msg="$1"
+  gum style --foreground="#00FF00" "$PROGRAM: $msg" >&2
+}
+
 warn() {
   local msg="${1:-something went wrong}"
   gum style --foreground="#FF0000" "$PROGRAM: $msg" >&2
@@ -357,11 +362,15 @@ chat() {
   fi
 
   while true; do
-    messages=$(list-messages)
+    if [ "$THREAD_LABEL" != "New chat with $ASSISTANT_NAME" ]; then
+      info "Retrieving messages..."
+      messages=$(list-messages)
+      clear
 
-    while IFS= read -r line; do
-      printf "%s\n" "$line"
-    done <<< "$messages"
+      while IFS= read -r line; do
+        printf "%s\n" "$line"
+      done <<< "$messages"
+    fi
 
     while true; do
       echo
