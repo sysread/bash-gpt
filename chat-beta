@@ -64,11 +64,12 @@ info() {
 
 warn() {
   local msg="${1:-something went wrong}"
-  gum style --foreground="#FF0000" "$PROGRAM: $msg" >&2
+  gum style --foreground="#FFFF00" "$PROGRAM: $msg" >&2
 }
 
 die() {
-  warn "$@"
+  local msg="${1:-something went wrong}"
+  gum style --foreground="#FF0000" "$PROGRAM: $msg" >&2
   exit 1
 }
 
@@ -146,9 +147,11 @@ send-msg() {
     die "$result"
   fi
 
-  jq -r '.id' <<< "$result"
+  MESSAGE_ID=$(jq -r '.id' <<< "$result")
 }
 
+# Called in bg proc
+# shellcheck disable=2317
 run-thread() {
   local result
 
@@ -160,6 +163,8 @@ run-thread() {
   fi
 }
 
+# Called in bg proc
+# shellcheck disable=2317
 get-run-status() {
   local run_id="$1"
   local result
@@ -176,7 +181,7 @@ print-user-msg() {
   local msg="$1"
 
   if [[ "$msg" =~ ^Attached\ file:\ (.*)$ ]]; then
-    msg="Attached file: $(gum style --faint "${BASH_REMATCH[1]}")"
+    msg="Attached file: ${BASH_REMATCH[1]}"
   fi
 
   gum style --foreground '#00FF00' --bold 'You:'
@@ -267,6 +272,9 @@ restore-selected-assistant() {
 # ------------------------------------------------------------------------------
 # The fun bit here is that I had GPT generate these messages. Meta AF, me.
 # ------------------------------------------------------------------------------
+# Initialize a global variable to store the last message index. Set to an invalid value initially.
+LAST_MESSAGE_IDX=-1
+
 get-random-polling-message() {
   local messages=(
     "Analyzing tensor matrices..."
@@ -289,23 +297,79 @@ get-random-polling-message() {
     "Counting electric sheep..."
   )
 
-  local idx=$((RANDOM % ${#messages[@]}))
+  local idx
+  local message_count=${#messages[@]}
+
+  # Generate a random index, but ensure it's not the same as the last one
+  while :; do
+    idx=$((RANDOM % message_count))
+    if [[ $idx -ne $LAST_MESSAGE_IDX ]]; then
+      LAST_MESSAGE_IDX=$idx
+      break
+    fi
+  done
+
   echo "${messages[$idx]}"
 }
 
-send-msg-and-wait() {
-  local msg="$1"
+SPINNER_TMP_FILES=()
+cleanup-spinner() {
+  for temp_file in "${SPINNER_TMP_FILES[@]}"; do
+    rm -f "$temp_file"
+  done
+
+  SPINNER_TMP_FILES=()
+}
+
+spinner() {
+  local stdout
+  local stderr
+  local cmd_pid
+  local cmd_exit_status
+
+  stdout=$(mktemp)
+  stderr=$(mktemp)
+  SPINNER_TMP_FILES+=("$stdout" "$stderr")
+
+  # Set trap to ensure cleanup runs on exit and interrupt
+  trap cleanup-spinner EXIT INT TERM
+
+  # Run the command in the background, redirecting stdout and stderr
+  ("$@" > "$stdout" 2> "$stderr") &
+  cmd_pid=$!
+
+  # Poll for subprocess status
+  while kill -0 "$cmd_pid" 2> /dev/null; do
+    gum spin -s dot --title.foreground="#00FF00" --title "$(get-random-polling-message)" -- sleep 3
+  done
+
+  # Wait for the command to finish and capture its exit status
+  wait "$cmd_pid"
+  cmd_exit_status=$?
+
+  # Output the command's stdout and stderr
+  cat "$stdout"
+  cat "$stderr" >&2
+
+  # Remove the temporary files
+  cleanup-spinner
+
+  # Return the exit status of the command
+  return $cmd_exit_status
+}
+
+# shellcheck disable=SC2317
+run-thread-and-wait() {
   local result
   local run_id
 
-  MESSAGE_ID=$(send-msg "$msg")
-  print-user-msg "$msg"
   run_id=$(run-thread)
 
   while true; do
     case $(get-run-status "$run_id") in
       queued | in_progress)
-        gum spin -s dot --title.foreground="#00FF00" --title "$(get-random-polling-message)" -- sleep 3
+        sleep 0.5
+        continue
         ;;
 
       completed)
@@ -339,15 +403,20 @@ attach-file() {
   filename=$(basename "$filepath")
   message="Attached file: $filename\n\n\`\`\`$(cat "$filepath")\`\`\`"
 
-  MESSAGE_ID=$(send-msg "$message")
-  print-user-msg "$message"
+  send-msg "$message"
+  print-user-msg "Attached file: $filename"
 }
 
 chat() {
   local placeholder="ctrl-d submits | esc cancels | send \\f to attach a file"
   local needs_summary=false
-  local messages
+  local initialized=false
   local msg
+
+  # Come on, shellcheck, this is clearly a string, not an array. Seriously,
+  # `read` operates just fine on here-strings.
+  # shellcheck disable=SC2178
+  local messages=""
 
   if [ -z "$ASSISTANT_ID" ]; then
     die "No assistant is selected"
@@ -362,15 +431,23 @@ chat() {
   fi
 
   while true; do
-    if [ "$THREAD_LABEL" != "New chat with $ASSISTANT_NAME" ]; then
-      info "Retrieving messages..."
-      messages=$(list-messages)
-      clear
+    if [ "$initialized" == false ]; then
+      if [ "$THREAD_LABEL" != "New chat with $ASSISTANT_NAME" ]; then
+        info "Retrieving conversation..."
+        # shellcheck disable=SC2178
+        messages="$(list-messages)"
+      fi
 
-      while IFS= read -r line; do
-        printf "%s\n" "$line"
-      done <<< "$messages"
+      initialized=true
+    else
+      # shellcheck disable=SC2178
+      messages="$(list-messages)"
     fi
+
+    # shellcheck disable=SC2128
+    while IFS= read -r line; do
+      printf "%s\n" "$line"
+    done <<< "$messages"
 
     while true; do
       echo
@@ -380,7 +457,7 @@ chat() {
           --height 10 \
           --char-limit 0 \
           --placeholder "$placeholder" \
-          --header ">>> $THREAD_LABEL <<<" \
+          --header ">>> $THREAD_LABEL (id: $THREAD_ID) <<<" \
           --header.foreground="#00FF00" \
           --cursor.mode=static \
           || true
@@ -408,7 +485,9 @@ chat() {
           ;;
 
         *)
-          send-msg-and-wait "$msg"
+          print-user-msg "$msg"
+          send-msg "$msg"
+          spinner run-thread-and-wait
 
           if [ "$needs_summary" = true ]; then
             save-to-chat-history
@@ -423,8 +502,15 @@ chat() {
 }
 
 save-to-chat-history() {
+  # goddamnit apple
+  if [[ "$(uname)" == "Darwin" ]]; then
+    SED_INPLACE_FLAG='-i ""'
+  else
+    SED_INPLACE_FLAG='-i'
+  fi
+
   if grep "$ASSISTANT_ID:$THREAD_ID:" "$CHAT_HISTORY_FILE" > /dev/null; then
-    sed -i "/$ASSISTANT_ID:$THREAD_ID:/d" "$CHAT_HISTORY_FILE"
+    eval "sed $SED_INPLACE_FLAG '/$ASSISTANT_ID:$THREAD_ID:/d' '$CHAT_HISTORY_FILE'"
   fi
 
   THREAD_LABEL=$(summarize-chat)
@@ -593,4 +679,5 @@ main-menu() {
 
 validate-env
 main-menu
+
 exit 0
