@@ -391,7 +391,8 @@ attach-file() {
 
   # If no argument provided, use file picker
   if [[ -z $filepath ]]; then
-    filepath=$(gum file .) || return 0
+    filepath=$(gum filter --header 'Select a file to attach' --no-fuzzy --height 10) \
+      || return 0
   fi
 
   # Ensure the file exists before proceeding
@@ -436,6 +437,7 @@ chat() {
         info "Retrieving conversation..."
         # shellcheck disable=SC2178
         messages="$(list-messages)"
+        clear
       fi
 
       initialized=true
@@ -613,11 +615,22 @@ chat-menu() {
 chat-history-menu() {
   local choice
   local height
+  local chats=()
 
   height=$(($(tput lines) - 2)) # -2 lines for gum filter's header and input
 
+  while IFS= read -r line; do
+    chats+=("$line")
+  done < <(list-chats)
+
+  if [ "${#chats[@]}" -eq 0 ]; then
+    info 'No chat history found'
+    read -r -p "Press enter to continue..." || true
+    return 0
+  fi
+
   choice=$(
-    list-chats \
+    echo "${chats[@]}" \
       | gum filter \
         --header "Conversation history" \
         --placeholder "Search" \
