@@ -646,6 +646,7 @@ assistant-menu() {
   local selected
 
   while true; do
+    clear
     choices=()
 
     while IFS=':' read -r id name; do
@@ -702,6 +703,8 @@ chat-menu() {
   fi
 
   while true; do
+    clear
+
     if grep "^$ASSISTANT_ID:" "$CHAT_HISTORY_FILE" > /dev/null; then
       choices=(
         "Start a new chat"
@@ -735,36 +738,40 @@ chat-history-menu() {
   local height
   local chats=()
 
-  height=$(($(tput lines) - 2)) # -2 lines for gum filter's header and input
+  while true; do
+    clear
+    height=$(($(tput lines) - 2)) # -2 lines for gum filter's header and input
 
-  while IFS= read -r line; do
-    chats+=("$line")
-  done < <(list-chats)
+    chats=()
+    while IFS= read -r line; do
+      chats+=("$line")
+    done < <(list-chats)
 
-  if [ "${#chats[@]}" -eq 0 ]; then
-    info 'No chat history found'
-    read -r -p "Press enter to continue..." || true
-    return 0
-  fi
+    if [ "${#chats[@]}" -eq 0 ]; then
+      info 'No chat history found'
+      read -r -p "Press enter to continue..." || true
+      return 0
+    fi
 
-  choice=$(
-    printf "%s\n" "${chats[@]}" \
-      | gum filter \
-        --header "Conversation history" \
-        --placeholder "Search" \
-        --no-fuzzy \
-        --height "$height" \
-      || true
-  )
+    choice=$(
+      printf "%s\n" "${chats[@]}" \
+        | gum filter \
+          --header "Conversation history" \
+          --placeholder "Search" \
+          --no-fuzzy \
+          --height "$height" \
+        || true
+    )
 
-  if [ -n "$choice" ]; then
-    THREAD_ID="$(echo "$choice" | sed -E 's/.*id: ([^)]+).*/\1/')"
-    THREAD_LABEL="$(echo "$choice" | sed -E 's/^(.*) \(id: [^)]+\)$/\1/')"
-    MESSAGE_ID=""
-    chat
-  else
-    return 0
-  fi
+    if [ -n "$choice" ]; then
+      THREAD_ID="$(echo "$choice" | sed -E 's/.*id: ([^)]+).*/\1/')"
+      THREAD_LABEL="$(echo "$choice" | sed -E 's/^(.*) \(id: [^)]+\)$/\1/')"
+      MESSAGE_ID=""
+      chat
+    else
+      continue
+    fi
+  done
 }
 
 main-menu() {
@@ -775,7 +782,6 @@ main-menu() {
     clear
 
     choices=()
-
     if [ -n "$ASSISTANT_NAME" ]; then
       choices+=("Chat with $ASSISTANT_NAME")
     fi
