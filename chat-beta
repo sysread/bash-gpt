@@ -59,7 +59,7 @@ validate-env() {
 
 info() {
   local msg="$1"
-  gum style --foreground="#00FF00" "$PROGRAM: $msg" >&2
+  gum style --foreground="#66FF66" "$PROGRAM: $msg" >&2
 }
 
 warn() {
@@ -221,7 +221,7 @@ print-user-msg() {
     msg="Attached file: ${BASH_REMATCH[1]}"
   fi
 
-  gum style --foreground '#00FF00' --bold 'You:'
+  gum style --foreground '#66FF66' --bold 'You:'
   gum format "$msg"
 }
 
@@ -261,16 +261,14 @@ add-assistant() {
   local description
   local tools
 
-  name=$(gum input --prompt 'Enter a name for the assistant: ' --placeholder 'Gene Peetee') || return 0
+  name=$(gum input --prompt 'Enter a name for the assistant: ' --placeholder 'G. Peetee') || return 0
   [[ -z "$name" ]] && {
-    warn "name is required"
-    return 1
+    name="G. Peetee"
   }
 
   instructions=$(gum input --prompt 'Give it some custom instructions: ' --placeholder 'You are a helpful chatbot.') || return 0
   [[ -z "$instructions" ]] && {
-    warn "instructions are required"
-    return 1
+    instructions="You are a helpful chatbot."
   }
 
   description=$(gum input --prompt 'Enter an optional description: ' --placeholder 'Gene Peetee, the helpful chatbot.')
@@ -428,7 +426,7 @@ spinner() {
 
   # Poll for subprocess status
   while kill -0 "$cmd_pid" 2> /dev/null; do
-    gum spin -s dot --title.foreground="#00FF00" --title "$(get-random-polling-message)" -- sleep 3
+    gum spin -s dot --title.foreground="#66FF66" --title "$(get-random-polling-message)" -- sleep 3
   done
 
   # Wait for the command to finish and capture its exit status
@@ -548,7 +546,7 @@ chat() {
           --char-limit 0 \
           --placeholder "$placeholder" \
           --header ">>> $THREAD_LABEL (id: $THREAD_ID) <<<" \
-          --header.foreground="#00FF00" \
+          --header.foreground="#66FF66" \
           --cursor.mode=static \
           || true
       )
@@ -769,7 +767,7 @@ chat-history-menu() {
       MESSAGE_ID=""
       chat
     else
-      continue
+      break
     fi
   done
 }
