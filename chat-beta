@@ -262,11 +262,24 @@ add-assistant() {
   local tools
 
   name=$(gum input --prompt 'Enter a name for the assistant: ' --placeholder 'G. Peetee') || return 0
+
   [[ -z "$name" ]] && {
     name="G. Peetee"
   }
 
-  instructions=$(gum input --prompt 'Give it some custom instructions: ' --placeholder 'You are a helpful chatbot.') || return 0
+  instructions=$(
+    gum write \
+      --width 100 \
+      --height 30 \
+      --char-limit 0 \
+      --placeholder "You are a helpful assistant" \
+      --header "GPT instructions" \
+      --header.foreground="#66FF66" \
+      --cursor.mode=static \
+      || true
+
+  )
+
   [[ -z "$instructions" ]] && {
     instructions="You are a helpful chatbot."
   }
@@ -303,14 +316,32 @@ edit-assistant() {
   name=$(jq -r '.name' <<< "$result")
   instructions=$(jq -r '.instructions' <<< "$result")
   description=$(jq -r '.description' <<< "$result")
-  tools=$(jq -r '"{" + (.tools | join(",")) + "}"' <<< "$result")
+  tools=$(jq -r '.tools | map(.type) | join(" ")' <<< "$result")
 
-  new_name=$(gum input --prompt 'Enter a new name: ' --placeholder "$name") || true
-  new_instructions=$(gum input --prompt 'Modify instructions: ' --placeholder "$instructions") || true
-  new_description=$(gum input --prompt 'Modify description: ' --placeholder "$description") || true
+  if ! new_name=$(gum input --prompt 'Enter a new name: ' --value "$name"); then
+    return
+  fi
 
-  new_tools="$(gum choose --header 'Update selected tools' --no-limit --selected "$tools" {none,code_interpreter,retrieval,function})" || true
+  if ! new_instructions=$(gum write --width 100 --height 30 --char-limit 0 --value "$instructions" --header "Modify GPT instructions" --header.foreground="#66FF66" --cursor.mode=static); then
+    return
+  fi
+
+  if ! new_description=$(gum input --prompt 'Modify description: ' --value "$description"); then
+    return
+  fi
+
+  if ! new_tools=$(gum choose --header 'Update selected tools' --no-limit --selected "$tools" {none,code_interpreter,retrieval,function}); then
+    return
+  fi
+
   new_tools=$(echo "$new_tools" | sed '/^none$/d;/^$/d')
+
+  if [ -z "$new_name" ] || [ -z "$new_instructions" ]; then
+    # The user pressed escape on name or instructions, so we skip updating the
+    # description and tools.
+    new_name=$name
+    new_instructions=$instructions
+  fi
 
   ASSISTANT_ID=$(modify-assistant "$new_name" "$new_instructions" "$new_description" "$new_tools")
   ASSISTANT_NAME="$new_name"
