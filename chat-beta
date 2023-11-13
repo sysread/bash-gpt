@@ -217,7 +217,7 @@ get-run-status() {
 print-user-msg() {
   local msg="$1"
 
-  if [[ "$msg" =~ ^Attached\ file:\ (.*)$ ]]; then
+  if [[ "$msg" =~ ^Attached\ file:\ ([^\n\r\\]*) ]]; then
     msg="Attached file: ${BASH_REMATCH[1]}"
   fi
 
@@ -412,6 +412,10 @@ get-random-polling-message() {
     "Pondering the query in the silicon mind..."
     "Querying the knowledge graph..."
     "Counting electric sheep..."
+    "Activate interlocks..."
+    "Dinotherms connected..."
+    "Infracells up..."
+    "Megathrusters are go..."
   )
 
   local idx
@@ -519,10 +523,45 @@ attach-file() {
   fi
 
   filename=$(basename "$filepath")
-  message="Attached file: $filename\n\n\`\`\`$(cat "$filepath")\`\`\`"
+  filename_escaped=$(printf '%q' "$filename")
+  message="Attached file: $filename_escaped\n\n\`\`\`$(< "$filepath")\`\`\`"
 
   send-msg "$message"
-  print-user-msg "Attached file: $filename"
+  print-user-msg "Attached file: $filename_escaped"
+}
+
+attach-command-output() {
+  local user_command="$1"
+  local output
+  local error
+
+  # If no command is provided, prompt the user for one
+  if [[ -z $user_command ]]; then
+    user_command=$(
+      gum write \
+        --placeholder 'Enter the command to execute' \
+        --width 100 \
+        --height 10 \
+        --header "Enter command" \
+        --header.foreground="#66FF66" \
+        --cursor.mode=static
+    ) || return 0
+  fi
+
+  if [[ -z $user_command ]]; then
+    warn "No command entered"
+    return 0
+  fi
+
+  # Execute the command and capture its output and error
+  if output=$( (eval "$user_command") 2>&1); then
+    local message="Attached local command for reference:\n\n\`\`\`sh\n$user_command\n\`\`\`\n\nCommand output:\n\n\`\`\`\n$output\n\`\`\`"
+    send-msg "$message"
+    print-user-msg "Attached output of local command: $user_command"
+  else
+    error=$output
+    warn "Command failed: $error"
+  fi
 }
 
 chat() {
@@ -573,7 +612,7 @@ chat() {
       msg=$(
         gum write \
           --width 100 \
-          --height 10 \
+          --height 15 \
           --char-limit 0 \
           --placeholder "$placeholder" \
           --header ">>> $THREAD_LABEL (id: $THREAD_ID) <<<" \
@@ -595,6 +634,17 @@ chat() {
         '\f '*)
           local file_path="${msg#\\f }"
           attach-file "$file_path"
+          continue
+          ;;
+
+        '\e')
+          attach-command-output
+          continue
+          ;;
+
+        '\e '*)
+          local user_command="${msg#\\e }"
+          attach-command-output "$user_command"
           continue
           ;;
 
