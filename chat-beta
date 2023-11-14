@@ -242,13 +242,15 @@ print-gpt-msg() {
 }
 
 list-messages() {
+  local limit=${1:-100}
+  local get_all=${2:-true}
   local messages
   local role
   local text
   local has_more=true
 
   while [ "$has_more" == true ]; do
-    messages=$(openai list-messages --thread "$THREAD_ID" --order "asc" --after "$MESSAGE_ID" --limit 100)
+    messages=$(openai list-messages --thread "$THREAD_ID" --order "asc" --after "$MESSAGE_ID" --limit "$limit")
     has_more=$(jq -r '.has_more' <<< "$messages")
 
     jq -c '.data[] | {role: .role, text: .content[0].text.value}' <<< "$messages" | while IFS= read -r line; do
@@ -263,6 +265,10 @@ list-messages() {
         print-gpt-msg "$text"
       fi
     done
+
+    if [ "$get_all" == false ]; then
+      break
+    fi
   done
 }
 
@@ -611,6 +617,7 @@ chat() {
         info "Retrieving conversation..."
         # shellcheck disable=SC2178
         messages="$(list-messages)"
+        move-chat-to-beginning-of-history
         clear
       fi
 
@@ -688,6 +695,26 @@ chat() {
   done
 }
 
+move-chat-to-beginning-of-history() {
+  local temp_file
+  local chat_entry
+
+  temp_file=$(mktemp)
+  chat_entry=$(grep "^$ASSISTANT_ID:$THREAD_ID:" "$CHAT_HISTORY_FILE")
+
+  # Remove the existing chat entry, if any, from the chat history
+  grep -v "^$ASSISTANT_ID:$THREAD_ID:" "$CHAT_HISTORY_FILE" > "$temp_file"
+
+  # Add the chat entry to the "beginning" of the history file
+  {
+    cat "$temp_file"
+    echo "$chat_entry"
+  } > "$CHAT_HISTORY_FILE"
+
+  # Clean up
+  rm -f "$temp_file"
+}
+
 save-to-chat-history() {
   # goddamnit apple
   if [[ "$(uname)" == "Darwin" ]]; then
@@ -708,7 +735,7 @@ summarize-chat() {
   get-completion \
     'gpt-3.5-turbo-16k' \
     'You are a bot that summarizes conversations tersely' \
-    "$(list-messages)\n\nSummarize the above conversation in 10 words or less"
+    "$(list-messages 6 false)\n\nSummarize the above conversation in 10 words or less"
 }
 
 new-chat() {
