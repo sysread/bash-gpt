@@ -216,9 +216,19 @@ get-run-status() {
 
 print-user-msg() {
   local msg="$1"
+  local filename
 
-  if [[ "$msg" =~ ^Attached\ file:\ ([^\n\r\\]*) ]]; then
-    msg="Attached file: ${BASH_REMATCH[1]}"
+  if [[ "$msg" =~ ^Attached\ file:\ ([^\`]*) ]]; then
+    filename=${BASH_REMATCH[1]}
+
+    # Ensure that any potential trailing \n are removed from the filename
+    # shellcheck disable=SC2001
+    filename=$(echo "$filename" | sed 's/\\n$//')
+
+    # Now utilize awk to truncate any trailing newline escape sequences
+    filename=$(echo "$filename" | awk '{ gsub(/\\n/,""); print }')
+
+    msg="Attached file: $filename"
   fi
 
   gum style --foreground '#66FF66' --bold 'You:'
@@ -235,20 +245,24 @@ list-messages() {
   local messages
   local role
   local text
+  local has_more=true
 
-  messages=$(openai list-messages --thread "$THREAD_ID" --order "asc" --after "$MESSAGE_ID")
+  while [ "$has_more" == true ]; do
+    messages=$(openai list-messages --thread "$THREAD_ID" --order "asc" --after "$MESSAGE_ID" --limit 100)
+    has_more=$(jq -r '.has_more' <<< "$messages")
 
-  jq -c '.data[] | {role: .role, text: .content[0].text.value}' <<< "$messages" | while IFS= read -r line; do
-    MESSAGE_ID=$(jq -r '.id' <<< "$line")
+    jq -c '.data[] | {role: .role, text: .content[0].text.value}' <<< "$messages" | while IFS= read -r line; do
+      MESSAGE_ID=$(jq -r '.id' <<< "$line")
 
-    role=$(jq -r '.role' <<< "$line")
-    text=$(jq -r '.text' <<< "$line")
+      role=$(jq -r '.role' <<< "$line")
+      text=$(jq -r '.text' <<< "$line")
 
-    if [[ "$role" == "user" ]]; then
-      print-user-msg "$text"
-    else
-      print-gpt-msg "$text"
-    fi
+      if [[ "$role" == "user" ]]; then
+        print-user-msg "$text"
+      else
+        print-gpt-msg "$text"
+      fi
+    done
   done
 }
 
@@ -396,26 +410,22 @@ get-random-polling-message() {
   local messages=(
     "Analyzing tensor matrices..."
     "Consulting with virtual neurons..."
-    "Assembling insights from data streams..."
-    "Generating response with algorithmic magic..."
-    "Beaming queries into the neural network..."
-    "Harnessing the power of machine learning..."
-    "Crunching numbers and patterns..."
     "Channeling the computational oracles..."
-    "Navigating layers of deep learning..."
-    "Synthesizing knowledge from the digital aether..."
-    "Calibrating language models for wisdom..."
+    "Calibrating language models..."
     "Propagating activations through the network..."
-    "Eliciting secrets from the realm of data..."
     "Optimizing synaptic connections virtually..."
-    "Invoking the syntactic synthesis ritual..."
-    "Pondering the query in the silicon mind..."
+    "Invoking the syntactic synthesis..."
     "Querying the knowledge graph..."
     "Counting electric sheep..."
-    "Activate interlocks..."
-    "Dinotherms connected..."
-    "Infracells up..."
+    "Activating interlocks..."
+    "Connecting dinotherms..."
+    "Bringing up infracells..."
     "Megathrusters are go..."
+    "Backfilling the quantum carburator..."
+    "Bifurcating Schrödinger's catscan..."
+    "Reversing the polarity of the flux quantum..."
+    "Reconfiguring the quantum plumbus..."
+    "Raising crimson shields..."
   )
 
   local idx
@@ -483,11 +493,14 @@ spinner() {
 run-thread-and-wait() {
   local result
   local run_id
+  local status
 
   run_id=$(run-thread)
 
   while true; do
-    case $(get-run-status "$run_id") in
+    status=$(get-run-status "$run_id")
+
+    case "$status" in
       queued | in_progress)
         sleep 0.5
         continue
@@ -555,8 +568,12 @@ attach-command-output() {
 
   # Execute the command and capture its output and error
   if output=$( (eval "$user_command") 2>&1); then
-    local message="Attached local command for reference:\n\n\`\`\`sh\n$user_command\n\`\`\`\n\nCommand output:\n\n\`\`\`\n$output\n\`\`\`"
+    # Convert actual newline characters in $output to the literal string "\n"
+    output_escaped=$(echo "$output" | awk '{printf("%s\\n", $0)}')
+    # Construct the message, preserving literal "\n" for new lines
+    local message="Attached local command for reference:\n\n\`\`\`sh\n$user_command\n\`\`\`\n\nCommand output:\n\n\`\`\`\n$output_escaped\`\`\`"
     send-msg "$message"
+    # Do not print the output with newlines, only the command
     print-user-msg "Attached output of local command: $user_command"
   else
     error=$output
@@ -894,6 +911,7 @@ main-menu() {
 }
 
 validate-env
+
 main-menu
 
 exit 0
