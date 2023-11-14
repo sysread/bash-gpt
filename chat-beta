@@ -426,6 +426,7 @@ get-random-polling-message() {
     "Reversing the polarity of the flux quantum..."
     "Reconfiguring the quantum plumbus..."
     "Raising crimson shields..."
+    "Taking a break to watch some interdimensional cable..."
   )
 
   local idx
