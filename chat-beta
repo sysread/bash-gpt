@@ -432,6 +432,7 @@ get-random-polling-message() {
     "Reversing the polarity of the flux quantum..."
     "Reconfiguring the quantum plumbus..."
     "Raising crimson shields..."
+    "Replacing dilithium crystals with new Folder's Crystals, let's see if engineering notices..."
     "Taking a break to watch some interdimensional cable..."
   )
 
@@ -509,7 +510,7 @@ run-thread-and-wait() {
 
     case "$status" in
       queued | in_progress)
-        sleep 0.5
+        sleep 1
         continue
         ;;
 
@@ -551,9 +552,47 @@ attach-file() {
 }
 
 attach-command-output() {
+  local message="$1"
+  local new_message=''
+  local line
+  local command
+  local command_output
+  local command_status
+
+  while read -r line; do
+    if [[ "$line" =~ ^\\e\ (.*) ]]; then
+      command="${BASH_REMATCH[1]}"
+
+      # Execute the command and capture its output
+      command_output=$(eval "$command" 2>&1)
+      command_status=$?
+
+      command_output=$(printf "\`\`\`sh
+\$ %s
+%s
+# exit status: %s
+\`\`\`" "$command" "$command_output" "$command_status")
+
+      new_message+="$command_output"$'\n'
+    else
+      new_message+="$line"$'\n'
+    fi
+  done <<< "$message"
+
+  # Trim the trailing newline
+  new_message="${new_message%$'\n'}"
+
+  # Send the modified message
+  send-msg "$new_message"
+  print-user-msg "$new_message"
+}
+
+# shellcheck disable=SC2317
+old-attach-command-output() {
   local user_command="$1"
   local output
   local error
+  local message
 
   # If no command is provided, prompt the user for one
   if [[ -z $user_command ]]; then
@@ -574,22 +613,42 @@ attach-command-output() {
   fi
 
   # Execute the command and capture its output and error
-  if output=$( (eval "$user_command") 2>&1); then
-    # Convert actual newline characters in $output to the literal string "\n"
-    output_escaped=$(echo "$output" | awk '{printf("%s\\n", $0)}')
-    # Construct the message, preserving literal "\n" for new lines
-    local message="Attached local command for reference:\n\n\`\`\`sh\n$user_command\n\`\`\`\n\nCommand output:\n\n\`\`\`\n$output_escaped\`\`\`"
-    send-msg "$message"
-    # Do not print the output with newlines, only the command
-    print-user-msg "Attached output of local command: $user_command"
+  # The error message is now captured in $error and the exit status in $cmd_exit_status
+  if output=$(eval "$user_command" 2>&1); then
+    cmd_exit_status=$?
   else
-    error=$output
-    warn "Command failed: $error"
+    error=$output cmd_exit_status=$?
   fi
+
+  if [ $cmd_exit_status -ne 0 ]; then
+    if gum confirm "Command failed with status $cmd_exit_status. Attach the output anyway?"; then
+      output="$error"
+    else
+      return 0
+    fi
+  fi
+
+  # Convert actual newline characters in $output to the literal string "\n"
+  output_escaped=$(echo "$output" | awk '{printf("%s\\n", $0)}')
+
+  # Construct the message, formatting it for the chat
+  message="Attached command output:
+\`\`\`sh
+$user_command
+\`\`\`
+
+Output:
+
+\`\`\`
+$output_escaped
+\`\`\`"
+
+  send-msg "$message"
+  print-user-msg "$message"
 }
 
 chat() {
-  local placeholder="ctrl-d submits | esc cancels | send \\f to attach a file"
+  local placeholder="ctrl-d submits | esc cancels | send \\f to attach a file | \\e to attach command output | \\resummarize to save to chat history"
   local needs_summary=false
   local initialized=false
   local msg
@@ -636,7 +695,7 @@ chat() {
       echo
       msg=$(
         gum write \
-          --width 100 \
+          --width 140 \
           --height 15 \
           --char-limit 0 \
           --placeholder "$placeholder" \
@@ -662,25 +721,19 @@ chat() {
           continue
           ;;
 
-        '\e')
-          attach-command-output
-          continue
-          ;;
-
-        '\e '*)
-          local user_command="${msg#\\e }"
-          attach-command-output "$user_command"
-          continue
-          ;;
-
         '\resummarize')
           save-to-chat-history
           continue
           ;;
 
         *)
-          print-user-msg "$msg"
-          send-msg "$msg"
+          if grep -q '^\\e ' <<< "$msg"; then
+            attach-command-output "$msg"
+          else
+            print-user-msg "$msg"
+            send-msg "$msg"
+          fi
+
           spinner run-thread-and-wait
 
           if [ "$needs_summary" = true ]; then
