@@ -551,104 +551,88 @@ attach-file() {
   print-user-msg "Attached file: $filename_escaped"
 }
 
-attach-command-output() {
+parse-message() {
   local message="$1"
-  local new_message=''
-  local line
-  local command
-  local command_output
-  local command_status
+  local is_in_code_fence=false
+  local command_block=""
+  local inside_command_block=false
+  local parsed_lines=()
 
-  while read -r line; do
-    if [[ "$line" =~ ^\\e\ (.*) ]]; then
-      command="${BASH_REMATCH[1]}"
-
-      # Execute the command and capture its output
-      command_output=$(eval "$command" 2>&1)
-      command_status=$?
-
-      command_output=$(printf "\`\`\`sh
-\$ %s
-%s
-# exit status: %s
-\`\`\`" "$command" "$command_output" "$command_status")
-
-      new_message+="$command_output"$'\n'
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^\`\`\` ]]; then
+      if $is_in_code_fence; then
+        is_in_code_fence=false
+      else
+        is_in_code_fence=true
+      fi
+    elif ! $is_in_code_fence && [[ "$line" == \\begin ]]; then
+      inside_command_block=true
+      command_block=""
+    elif ! $is_in_code_fence && [[ "$line" == \\end && $inside_command_block == true ]]; then
+      inside_command_block=false
+      if [[ -n $command_block ]]; then
+        parsed_lines+=("EXEC $command_block")
+      fi
+      command_block=""
+    elif $inside_command_block && [[ -n $line ]]; then
+      if [[ "$line" =~ \\$ ]]; then
+        command_block+="${line%\\} " # Append part of command, trimming the trailing backslash
+      else
+        command_block+="$line" # Regular line, just append
+        if [[ $command_block =~ [^[:space:]] ]]; then
+          parsed_lines+=("EXEC $command_block") # Only add if command_block is not just whitespace
+        fi
+        command_block=""
+      fi
+    elif ! $is_in_code_fence && [[ "$line" =~ ^\\exec\ (.*) ]]; then
+      parsed_lines+=("EXEC ${BASH_REMATCH[1]}")
     else
-      new_message+="$line"$'\n'
+      parsed_lines+=("TEXT $line")
     fi
   done <<< "$message"
 
-  # Trim the trailing newline
-  new_message="${new_message%$'\n'}"
+  # Add any remaining non-empty commands to parsed_lines
+  if [[ -n $command_block && $command_block =~ [^[:space:]] ]]; then
+    parsed_lines+=("EXEC $command_block")
+  fi
 
-  # Send the modified message
-  send-msg "$new_message"
-  print-user-msg "$new_message"
+  printf "%s\n" "${parsed_lines[@]}"
 }
 
-# shellcheck disable=SC2317
-old-attach-command-output() {
-  local user_command="$1"
-  local output
-  local error
-  local message
+handle-parsed-message() {
+  local parsed_lines=("$@")
+  local final_message=""
+  local line
 
-  # If no command is provided, prompt the user for one
-  if [[ -z $user_command ]]; then
-    user_command=$(
-      gum write \
-        --placeholder 'Enter the command to execute' \
-        --width 100 \
-        --height 10 \
-        --header "Enter command" \
-        --header.foreground="#66FF66" \
-        --cursor.mode=static
-    ) || return 0
-  fi
-
-  if [[ -z $user_command ]]; then
-    warn "No command entered"
-    return 0
-  fi
-
-  # Execute the command and capture its output and error
-  # The error message is now captured in $error and the exit status in $cmd_exit_status
-  if output=$(eval "$user_command" 2>&1); then
-    cmd_exit_status=$?
-  else
-    error=$output cmd_exit_status=$?
-  fi
-
-  if [ $cmd_exit_status -ne 0 ]; then
-    if gum confirm "Command failed with status $cmd_exit_status. Attach the output anyway?"; then
-      output="$error"
+  for line in "${parsed_lines[@]}"; do
+    if [[ "$line" =~ ^EXEC\ (.*) ]]; then
+      local exec_line="${BASH_REMATCH[1]}"
+      final_message+=$(attach-command-output "$exec_line")
     else
-      return 0
+      local text_line="${line#TEXT }"
+      final_message+="$text_line"$'\n'
     fi
-  fi
+  done
 
-  # Convert actual newline characters in $output to the literal string "\n"
-  output_escaped=$(echo "$output" | awk '{printf("%s\\n", $0)}')
+  # Print and send the final combined message.
+  print-user-msg "$final_message"
+  send-msg "$final_message"
+}
 
-  # Construct the message, formatting it for the chat
-  message="Attached command output:
-\`\`\`sh
-$user_command
-\`\`\`
+attach-command-output() {
+  local command="$1"
+  local command_output
+  local command_status
 
-Output:
-
-\`\`\`
-$output_escaped
-\`\`\`"
-
-  send-msg "$message"
-  print-user-msg "$message"
+  # Execute the command and capture its output
+  command_output=$(eval "$command" 2>&1)
+  command_status=$?
+  command_output=$(printf "\`\`\`sh\n\$ %s\n%s\n# exit status: %s\n\`\`\`" "$command" "$command_output" "$command_status")
+  echo "$command_output"
 }
 
 chat() {
-  local placeholder="ctrl-d submits | esc cancels | send \\f to attach a file | \\e to attach command output | \\resummarize to save to chat history"
+  local placeholder="ctrl-d submits | esc cancels | send \\f to attach a file | \\exec to embed 1-liner | \\begin..\\end to embed multi-line command"
   local needs_summary=false
   local initialized=false
   local msg
@@ -727,13 +711,8 @@ chat() {
           ;;
 
         *)
-          if grep -q '^\\e ' <<< "$msg"; then
-            attach-command-output "$msg"
-          else
-            print-user-msg "$msg"
-            send-msg "$msg"
-          fi
-
+          IFS=$'\n' read -r -d '' -a parsed_lines < <(parse-message "$msg" && printf '\0')
+          handle-parsed-message "${parsed_lines[@]}"
           spinner run-thread-and-wait
 
           if [ "$needs_summary" = true ]; then
@@ -743,6 +722,7 @@ chat() {
 
           break
           ;;
+
       esac
     done
   done
