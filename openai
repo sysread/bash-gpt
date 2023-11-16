@@ -90,7 +90,8 @@ EOL
 # ------------------------------------------------------------------------------
 cmd-usage() {
   local cmd="$1"
-  local options=('--help' 'show help information' "${@:2}")
+  local options=("${@:2}")
+  local collected=('--help' 'show help information')
   local usage
 
   usage="_usage: $PROGRAM $cmd [OPTIONS]_
@@ -101,78 +102,66 @@ cmd-usage() {
   for ((i = 0; i < ${#options[@]}; i++)); do
     case "${options[i]}" in
       PAGINATION)
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=(
-          '--order' 'asc or desc (by data[].created_at)'
-          '--limit' 'the number of entries to return (default: 20)'
-          '--after' 'a cursor to use for pagination (based on data[].id)'
-          '--before' 'a cursor to use for pagination (based on data[].id)'
-        )
+        collected+=('--order' 'asc or desc (by data[].created_at)')
+        collected+=('--limit' 'the number of entries to return (default: 20)')
+        collected+=('--after' 'a cursor to use for pagination (based on data[].id)')
+        collected+=('--before' 'a cursor to use for pagination (based on data[].id)')
         ;;
 
       ASSISTANT)
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--assistant' 'the id of the assistant (required)')
+        collected+=('--assistant' 'the id of the assistant (required)')
         ;;
 
       THREAD)
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--thread' 'the id of the thread (required)')
+        collected+=('--thread' 'the id of the thread (required)')
         ;;
 
       RUN)
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--run' 'the id of the run (required)')
+        collected+=('--run' 'the id of the run (required)')
         ;;
 
       STEP)
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--step' 'the id of the step (required)')
+        collected+=('--step' 'the id of the step (required)')
         ;;
 
       MESSAGE)
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--message' 'the id of the message (required)')
+        collected+=('--message' 'the id of the message (required)')
         ;;
 
       INSTRUCTIONS)
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--instructions' 'the instructions for the assistant')
+        collected+=('--instructions' 'the instructions for the assistant')
         ;;
 
       NAME)
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--name' 'the name of the assistant (required)')
+        collected+=('--name' 'the name of the assistant (required)')
         ;;
 
       DESCRIPTION)
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--description' 'the description of the assistant')
+        collected+=('--description' 'the description of the assistant')
         ;;
 
       FILE)
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--file' 'the id of the file (required)')
+        collected+=('--file' 'the id of the file (required)')
         ;;
 
       CONTENT)
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--content' 'the message to add (required)')
+        collected+=('--content' 'the message to add (required)')
         ;;
 
       'FILE[]')
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--file' 'the id of files to include; can be specified multiple times')
+        collected+=('--file' 'the id of files to include; can be specified multiple times')
         ;;
 
       'META[]')
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--meta' 'the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)')
+        collected+=('--meta' 'the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)')
         ;;
 
       'TOOLS[]')
-        options=("${options[@]:0:i}" "${options[@]:((i + 1))}")
-        options+=('--tools' 'the name of tools to enable; can be specified multiple times; current options are "code_interpreter", "retrieval", and "function"')
+        collected+=('--tools' 'the name of tools to enable; can be specified multiple times; current options are "code_interpreter", "retrieval", and "function"')
+        ;;
+
+      *)
+        collected+=("${options[i]}")
         ;;
     esac
   done
@@ -182,10 +171,10 @@ cmd-usage() {
     line="${line//$'\u00A0'/ }"
     usage+=$'\n'"$line"
   done < <(
-    for ((i = 0; i < ${#options[@]}; i += 2)); do
+    for ((i = 0; i < ${#collected[@]}; i += 2)); do
       # Replace spaces in explanations with non-breaking spaces
-      local explanation=${options[i + 1]// /$'\u00A0'}
-      printf "  * %s\t%s\n" "${options[i]}" "$explanation"
+      local explanation=${collected[i + 1]// /$'\u00A0'}
+      printf "  * %s\t%s\n" "${collected[i]}" "$explanation"
     done | column -t
   )
 
