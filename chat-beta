@@ -545,9 +545,15 @@ split-into-chunks() {
 }
 
 attach-file() {
-  local filepath="$1"
+  local filepath
   local content
   local action
+
+  if [ -z "$*" ]; then
+    filepath=$(find . -type f | grep -v '.git' | gum filter --header 'Select a file to attach' --fuzzy) || return 0
+  else
+    filepath="$1"
+  fi
 
   if [[ ! -f "$filepath" ]]; then
     echo "File does not exist: $filepath" >&2
