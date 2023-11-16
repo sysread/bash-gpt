@@ -189,7 +189,7 @@ send-msg() {
     die "$result"
   fi
 
-  MESSAGE_ID=$(jq -r '.id' <<< "$result")
+  #MESSAGE_ID=$(jq -r '.id' <<< "$result")
 }
 
 # Called in bg proc
@@ -221,19 +221,9 @@ get-run-status() {
 
 print-user-msg() {
   local msg="$1"
-  local filename
 
-  if [[ "$msg" =~ ^Attached\ file:\ ([^\`]*) ]]; then
-    filename=${BASH_REMATCH[1]}
-
-    # Ensure that any potential trailing \n are removed from the filename
-    # shellcheck disable=SC2001
-    filename=$(echo "$filename" | sed 's/\\n$//')
-
-    # Now utilize awk to truncate any trailing newline escape sequences
-    filename=$(echo "$filename" | awk '{ gsub(/\\n/,""); print }')
-
-    msg="Attached file: $filename"
+  if [[ "$msg" =~ ^Attached\ file\ content: ]]; then
+    msg=$(echo "$msg" | sed -n '1p')
   fi
 
   gum style --foreground '#66FF66' --bold 'You:'
@@ -548,6 +538,7 @@ attach-file() {
   local filepath
   local content
   local action
+  local msg
 
   if [ -z "$*" ]; then
     filepath=$(find . -type f | grep -v '.git' | gum filter --header 'Select a file to attach' --fuzzy) || return 0
@@ -595,7 +586,11 @@ attach-file() {
           fi
 
           info "Sending chunk ${part_no} (${#chunk} characters) - ${pct}% complete"
-          send-msg "Part ${part_no} of the file content (truncated to fit): \`\`\`${chunk}\`\`\`"
+
+          # shellcheck disable=SC2016
+          msg=$(printf 'Attached file content: `%s` (part %s)\n```\n%s\n```\n' "$filepath" "$part_no" "$chunk")
+          send-msg "$msg"
+
           sleep 1 # Adding a short delay to avoid rapid message sending
         done < <(split-into-chunks "$max_chunk_size" "$content")
 
@@ -612,10 +607,11 @@ attach-file() {
         return 0
         ;;
     esac
+  else
+    # shellcheck disable=SC2016
+    msg=$(printf 'Attached file content: `%s`\n```\n%s\n```\n' "$filepath" "$content")
+    send-msg "$msg"
   fi
-
-  # Proceed to send the original or modified content
-  send-msg "Attached file content: \`\`\`${content}\`\`\`"
 }
 
 parse-message() {
@@ -746,6 +742,7 @@ chat() {
 
     while true; do
       echo
+
       msg=$(
         gum write \
           --width 140 \
@@ -765,18 +762,18 @@ chat() {
 
         '\f')
           attach-file
-          continue
+          break
           ;;
 
         '\f '*)
           local file_path="${msg#\\f }"
           attach-file "$file_path"
-          continue
+          break
           ;;
 
         '\resummarize')
           save-to-chat-history
-          continue
+          break
           ;;
 
         *)
@@ -931,31 +928,29 @@ chat-menu() {
   while true; do
     clear
 
+    choices=("Start a new chat")
+
     if grep "^$ASSISTANT_ID:" "$CHAT_HISTORY_FILE" > /dev/null; then
-      choices=(
-        "Start a new chat"
-        "Continue a previous chat with $ASSISTANT_NAME"
-        "Back"
-      )
-
-      selected=$(gum choose --header "Chats" "${choices[@]}") || true
-
-      case "$selected" in
-        "" | "Back")
-          break
-          ;;
-
-        "Start a new chat")
-          new-chat
-          ;;
-
-        "Continue a previous chat with $ASSISTANT_NAME")
-          chat-history-menu
-          ;;
-      esac
-    else
-      new-chat
+      choices+=("Continue a previous chat with $ASSISTANT_NAME")
     fi
+
+    choices+=("Back")
+
+    selected=$(gum choose --header "Chats" "${choices[@]}") || true
+
+    case "$selected" in
+      "" | "Back")
+        break
+        ;;
+
+      "Start a new chat")
+        new-chat
+        ;;
+
+      "Continue a previous chat with $ASSISTANT_NAME")
+        chat-history-menu
+        ;;
+    esac
   done
 }
 
