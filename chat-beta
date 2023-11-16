@@ -9,7 +9,8 @@ PROGRAM="${0##*/}"
 STORE="$HOME/.bashgpt/chat"
 CHAT_HISTORY_FILE="$STORE/chat-history"
 LAST_ASSISTANT_FILE="$STORE/last_assistant.conf"
-MAX_FILE_SIZE=32768
+MAX_FILE_SIZE=30000
+MAX_MSG_SIZE=15000
 
 # ------------------------------------------------------------------------------
 # Globals
@@ -189,7 +190,8 @@ send-msg() {
     die "$result"
   fi
 
-  #MESSAGE_ID=$(jq -r '.id' <<< "$result")
+  print-user-msg "$msg"
+  MESSAGE_ID=$(jq -r '.id' <<< "$result")
 }
 
 # Called in bg proc
@@ -521,6 +523,7 @@ run-thread-and-wait() {
   done
 }
 
+# shellcheck disable=SC2317
 split-into-chunks() {
   local chunk_size=$1
   local str=$2
@@ -534,6 +537,7 @@ split-into-chunks() {
   done
 }
 
+# shellcheck disable=SC2317
 attach-file() {
   local filepath
   local content
@@ -546,16 +550,20 @@ attach-file() {
     filepath="$1"
   fi
 
+  # Remove leading whitespace, if any
+  filepath="${filepath#"${filepath%%[![:space:]]*}"}"
+
+  # Remove trailing whitespace, if any
+  filepath="${filepath%"${filepath##*[![:space:]]}"}"
+
   if [[ ! -f "$filepath" ]]; then
-    echo "File does not exist: $filepath" >&2
+    echo "File does not exist: '$filepath'" >&2
     return 0
   fi
 
   content=$(< "$filepath")
 
   if ((${#content} > MAX_FILE_SIZE)); then
-    trap 'echo "An error occurred in send-msg"; exit 1' ERR
-
     warn "The file content exceeds the maximum allowed size."
 
     action_truncate="Truncate file to fit the limit"
@@ -572,7 +580,6 @@ attach-file() {
       "$action_split")
         # Calculate maximum size for a chunk of content, considering markdown and headers
         local total_characters=${#content}
-        local max_chunk_size=$((MAX_FILE_SIZE - 100)) # Adjusted for extra characters
         local part_no=0
         local chunk
         local pct
@@ -580,7 +587,7 @@ attach-file() {
         while IFS= read -r -d '' chunk; do # Read until null byte
           part_no=$((part_no + 1))
 
-          pct=$((part_no * max_chunk_size * 100 / total_characters))
+          pct=$((part_no * MAX_FILE_SIZE * 100 / total_characters))
           if ((pct > 100)); then
             pct=100
           fi
@@ -589,28 +596,67 @@ attach-file() {
 
           # shellcheck disable=SC2016
           msg=$(printf 'Attached file content: `%s` (part %s)\n```\n%s\n```\n' "$filepath" "$part_no" "$chunk")
-          send-msg "$msg"
+          echo -e "$msg" | base64
 
           sleep 1 # Adding a short delay to avoid rapid message sending
-        done < <(split-into-chunks "$max_chunk_size" "$content")
+        done < <(split-into-chunks "$MAX_FILE_SIZE" "$content")
 
         return 0
         ;;
 
       "$action_cancel")
-        prompt "Operation cancelled."
         return 0
         ;;
 
       *)
-        prompt "Invalid action selected."
         return 0
         ;;
     esac
+  fi
+
+  # shellcheck disable=SC2016
+  msg=$(printf 'Attached file content: `%s`\n```\n%s\n```\n' "$filepath" "$content")
+  echo -e "$msg" | base64
+}
+
+# shellcheck disable=SC2317
+attach-command-output() {
+  local command="$1"
+  local command_output
+  local command_status
+  local msg
+
+  # Execute the command and capture its output
+  command_output=$(eval "$command" 2>&1)
+  command_status=$?
+  command_output=$(printf "\`\`\`sh\n\$ %s\n%s\n# exit status: %s\n\`\`\`" "$command" "$command_output" "$command_status")
+
+  if ((${#command_output} > MAX_MSG_SIZE)); then
+    local total_characters=${#command_output}
+    local part_no=0
+    local chunk
+    local pct
+
+    echo -e "Output of \`$command\` is too large to send in a single message. Sending in multiple messages instead." | base64
+
+    while IFS= read -r -d '' chunk; do # Read until null byte
+      part_no=$((part_no + 1))
+
+      pct=$((part_no * MAX_FILE_SIZE * 100 / total_characters))
+      if ((pct > 100)); then
+        pct=100
+      fi
+
+      # shellcheck disable=SC2016
+      msg=$(printf 'Command `%s` output continued (part %s):\n```\n%s\n```' "$command" "$part_no" "$chunk")
+      echo -e "$msg" | base64
+
+      sleep 1 # Adding a short delay to avoid rapid message sending
+    done < <(split-into-chunks "$MAX_MSG_SIZE" "$command_output")
   else
     # shellcheck disable=SC2016
-    msg=$(printf 'Attached file content: `%s`\n```\n%s\n```\n' "$filepath" "$content")
-    send-msg "$msg"
+    msg=$(printf 'Command `%s` output:\n```\n%s\n```' "$command" "$command_output")
+    echo -e "$msg" | base64
   fi
 }
 
@@ -622,6 +668,7 @@ parse-message() {
   local parsed_lines=()
 
   while IFS= read -r line; do
+    # Do not process any directives within a markdown code fence
     if [[ "$line" =~ ^\`\`\` ]]; then
       # Toggle the is_in_code_fence flag
       if [ "$is_in_code_fence" = true ]; then
@@ -630,24 +677,42 @@ parse-message() {
         is_in_code_fence=true
       fi
       parsed_lines+=("TEXT $line")
+    # We're not in a code fence - GAME ON
     elif [ "$is_in_code_fence" != true ]; then
+      # Beginning of command block
       if [[ "$line" == \\begin ]]; then
         inside_command_block=true
         command_block=""
+      # End of command block
       elif [[ "$line" == \\end ]] && $inside_command_block; then
         inside_command_block=false
-        parsed_lines+=("EXEC $command_block")
+
+        if [[ $command_block =~ [^[:space:]] ]]; then
+          parsed_lines+=("EXEC $command_block")
+        fi
+
         command_block=""
+      # Inside of command block - collect commands
       elif $inside_command_block; then
         if [[ "$line" =~ \\$ ]]; then
-          command_block+="${line%\\} " # Append part of command, trimming the trailing backslash
+          # Append part of command, trimming the trailing backslash
+          command_block+="${line%\\} "
         else
           command_block+="$line"
-          parsed_lines+=("EXEC $command_block") # Only add if command_block is not just whitespace
+
+          if [[ $command_block =~ [^[:space:]] ]]; then
+            parsed_lines+=("EXEC $command_block")
+          fi
+
           command_block=""
         fi
+      # Single line command
       elif [[ "$line" =~ ^\\exec\ (.*) ]]; then
         parsed_lines+=("EXEC ${BASH_REMATCH[1]}")
+      # File block
+      elif [[ "$line" =~ ^\\f(.*) ]]; then
+        parsed_lines+=("FILE ${BASH_REMATCH[1]}")
+      # Normal message
       else
         parsed_lines+=("TEXT $line")
       fi
@@ -664,36 +729,76 @@ parse-message() {
   printf "%s\n" "${parsed_lines[@]}"
 }
 
-handle-parsed-message() {
-  local parsed_lines=("$@")
-  local final_message=""
-  local line
-
-  for line in "${parsed_lines[@]}"; do
-    if [[ "$line" =~ ^EXEC\ (.*) ]]; then
-      local exec_line="${BASH_REMATCH[1]}"
-      final_message+=$(attach-command-output "$exec_line")
-    else
-      local text_line="${line#TEXT }"
-      final_message+="$text_line"$'\n'
-    fi
-  done
-
-  # Print and send the final combined message.
-  print-user-msg "$final_message"
-  send-msg "$final_message"
+join-by-newline() {
+  local IFS=$'\n'
+  echo "$*"
 }
 
-attach-command-output() {
-  local command="$1"
-  local command_output
-  local command_status
+# shellcheck disable=SC2317
+handle-parsed-message() {
+  local parsed_lines=("$@")
+  local messages=()
+  local text_content=()
 
-  # Execute the command and capture its output
-  command_output=$(eval "$command" 2>&1)
-  command_status=$?
-  command_output=$(printf "\`\`\`sh\n\$ %s\n%s\n# exit status: %s\n\`\`\`" "$command" "$command_output" "$command_status")
-  echo "$command_output"
+  for line in "${parsed_lines[@]}"; do
+    case "$line" in
+      TEXT*)
+        text_content+=("${line#TEXT }")
+        ;;
+
+      EXEC*)
+        if [ "${#text_content[@]}" -gt 0 ]; then
+          messages+=("$(join-by-newline "${text_content[@]}")")
+          text_content=()
+        fi
+
+        local exec_line="${line#EXEC }"
+        local msgs=()
+        local msg
+        readarray -t msgs < <(attach-command-output "$exec_line")
+
+        for msg in "${msgs[@]}"; do
+          msg=$(base64 --decode <<< "$msg")
+          if [ -n "$msg" ]; then
+            messages+=("$msg")
+          fi
+        done
+        ;;
+
+      FILE*)
+        if [ "${#text_content[@]}" -gt 0 ]; then
+          messages+=("$(join-by-newline "${text_content[@]}")")
+          text_content=()
+        fi
+
+        local file_path="${line#FILE }"
+        local msgs=()
+        local msg
+        readarray -t msgs < <(attach-file "${file_path}")
+
+        for msg in "${msgs[@]}"; do
+          msg=$(base64 --decode <<< "$msg")
+          if [ -n "$msg" ]; then
+            messages+=("$msg")
+          fi
+        done
+        ;;
+
+      *)
+        warn "Unhandled message type: $line"
+        ;;
+    esac
+  done
+
+  if [ "${#text_content[@]}" -gt 0 ]; then
+    messages+=("$(join-by-newline "${text_content[@]}")")
+    text_content=()
+  fi
+
+  for msg in "${messages[@]}"; do
+    send-msg "$msg"
+    sleep 0.5
+  done
 }
 
 chat() {
@@ -760,19 +865,13 @@ chat() {
           break 2
           ;;
 
-        '\f')
-          attach-file
-          break
-          ;;
-
-        '\f '*)
-          local file_path="${msg#\\f }"
-          attach-file "$file_path"
-          break
-          ;;
-
-        '\resummarize')
+        '\rename')
           save-to-chat-history
+          break
+          ;;
+
+        '\run')
+          spinner run-thread-and-wait
           break
           ;;
 
