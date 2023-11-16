@@ -9,6 +9,7 @@ PROGRAM="${0##*/}"
 STORE="$HOME/.bashgpt/chat"
 CHAT_HISTORY_FILE="$STORE/chat-history"
 LAST_ASSISTANT_FILE="$STORE/last_assistant.conf"
+MAX_FILE_SIZE=32768
 
 # ------------------------------------------------------------------------------
 # Globals
@@ -71,6 +72,10 @@ die() {
   local msg="${1:-something went wrong}"
   gum style --foreground="#FF0000" "$PROGRAM: $msg" >&2
   exit 1
+}
+
+prompt() {
+  gum confirm "$1"
 }
 
 # ------------------------------------------------------------------------------
@@ -526,29 +531,85 @@ run-thread-and-wait() {
   done
 }
 
+split-into-chunks() {
+  local chunk_size=$1
+  local str=$2
+  local chunk
+
+  while [ -n "$str" ]; do
+    chunk=${str:0:$chunk_size}
+    echo -n "$chunk" # Print chunk without a trailing newline
+    echo -ne "\0"    # Use null byte as delimiter
+    str=${str:$chunk_size}
+  done
+}
+
 attach-file() {
-  local filepath="${1:-}"
-  local filename
-  local message
+  local filepath="$1"
+  local content
+  local action
 
-  # If no argument provided, use file picker
-  if [[ -z $filepath ]]; then
-    filepath=$(gum filter --header 'Select a file to attach' --no-fuzzy --height 10) \
-      || return 0
-  fi
-
-  # Ensure the file exists before proceeding
-  if [[ ! -f $filepath ]]; then
+  if [[ ! -f "$filepath" ]]; then
     echo "File does not exist: $filepath" >&2
     return 0
   fi
 
-  filename=$(basename "$filepath")
-  filename_escaped=$(printf '%q' "$filename")
-  message="Attached file: $filename_escaped\n\n\`\`\`$(< "$filepath")\`\`\`"
+  content=$(< "$filepath")
 
-  send-msg "$message"
-  print-user-msg "Attached file: $filename_escaped"
+  if ((${#content} > MAX_FILE_SIZE)); then
+    trap 'echo "An error occurred in send-msg"; exit 1' ERR
+
+    warn "The file content exceeds the maximum allowed size."
+
+    action_truncate="Truncate file to fit the limit"
+    action_split="Split the content into multiple messages"
+    action_cancel="Cancel the operation"
+
+    action=$(gum choose --header "How would you like to proceed?" "$action_truncate" "$action_split" "$action_cancel")
+
+    case "$action" in
+      "$action_truncate")
+        content="${content:0:MAX_FILE_SIZE}"
+        ;;
+
+      "$action_split")
+        # Calculate maximum size for a chunk of content, considering markdown and headers
+        local total_characters=${#content}
+        local max_chunk_size=$((MAX_FILE_SIZE - 100)) # Adjusted for extra characters
+        local part_no=0
+        local chunk
+        local pct
+
+        while IFS= read -r -d '' chunk; do # Read until null byte
+          part_no=$((part_no + 1))
+
+          pct=$((part_no * max_chunk_size * 100 / total_characters))
+          if ((pct > 100)); then
+            pct=100
+          fi
+
+          info "Sending chunk ${part_no} (${#chunk} characters) - ${pct}% complete"
+          send-msg "Part ${part_no} of the file content (truncated to fit): \`\`\`${chunk}\`\`\`"
+          sleep 1 # Adding a short delay to avoid rapid message sending
+        done < <(split-into-chunks "$max_chunk_size" "$content")
+
+        return 0
+        ;;
+
+      "$action_cancel")
+        prompt "Operation cancelled."
+        return 0
+        ;;
+
+      *)
+        prompt "Invalid action selected."
+        return 0
+        ;;
+    esac
+  fi
+
+  # Proceed to send the original or modified content
+  send-msg "Attached file content: \`\`\`${content}\`\`\`"
 }
 
 parse-message() {
@@ -560,32 +621,34 @@ parse-message() {
 
   while IFS= read -r line; do
     if [[ "$line" =~ ^\`\`\` ]]; then
-      if $is_in_code_fence; then
+      # Toggle the is_in_code_fence flag
+      if [ "$is_in_code_fence" = true ]; then
         is_in_code_fence=false
       else
         is_in_code_fence=true
       fi
-    elif ! $is_in_code_fence && [[ "$line" == \\begin ]]; then
-      inside_command_block=true
-      command_block=""
-    elif ! $is_in_code_fence && [[ "$line" == \\end && $inside_command_block == true ]]; then
-      inside_command_block=false
-      if [[ -n $command_block ]]; then
-        parsed_lines+=("EXEC $command_block")
-      fi
-      command_block=""
-    elif $inside_command_block && [[ -n $line ]]; then
-      if [[ "$line" =~ \\$ ]]; then
-        command_block+="${line%\\} " # Append part of command, trimming the trailing backslash
-      else
-        command_block+="$line" # Regular line, just append
-        if [[ $command_block =~ [^[:space:]] ]]; then
-          parsed_lines+=("EXEC $command_block") # Only add if command_block is not just whitespace
-        fi
+      parsed_lines+=("TEXT $line")
+    elif [ "$is_in_code_fence" != true ]; then
+      if [[ "$line" == \\begin ]]; then
+        inside_command_block=true
         command_block=""
+      elif [[ "$line" == \\end ]] && $inside_command_block; then
+        inside_command_block=false
+        parsed_lines+=("EXEC $command_block")
+        command_block=""
+      elif $inside_command_block; then
+        if [[ "$line" =~ \\$ ]]; then
+          command_block+="${line%\\} " # Append part of command, trimming the trailing backslash
+        else
+          command_block+="$line"
+          parsed_lines+=("EXEC $command_block") # Only add if command_block is not just whitespace
+          command_block=""
+        fi
+      elif [[ "$line" =~ ^\\exec\ (.*) ]]; then
+        parsed_lines+=("EXEC ${BASH_REMATCH[1]}")
+      else
+        parsed_lines+=("TEXT $line")
       fi
-    elif ! $is_in_code_fence && [[ "$line" =~ ^\\exec\ (.*) ]]; then
-      parsed_lines+=("EXEC ${BASH_REMATCH[1]}")
     else
       parsed_lines+=("TEXT $line")
     fi
