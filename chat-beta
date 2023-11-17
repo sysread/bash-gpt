@@ -191,7 +191,6 @@ send-msg() {
   fi
 
   print-user-msg "$msg"
-  MESSAGE_ID=$(jq -r '.id' <<< "$result")
 }
 
 # Called in bg proc
@@ -245,14 +244,16 @@ list-messages() {
   local role
   local text
   local has_more=true
+  local lines
 
   while [ "$has_more" == true ]; do
     messages=$(openai list-messages --thread "$THREAD_ID" --order "asc" --after "$MESSAGE_ID" --limit "$limit")
     has_more=$(jq -r '.has_more' <<< "$messages")
 
-    jq -c '.data[] | {role: .role, text: .content[0].text.value}' <<< "$messages" | while IFS= read -r line; do
-      MESSAGE_ID=$(jq -r '.id' <<< "$line")
+    IFS=$'\n' read -r -d '' -a lines < <(jq -c '.data[] | {id: .id, role: .role, text: .content[0].text.value}' <<< "$messages" && printf '\0')
 
+    for line in "${lines[@]}"; do
+      MESSAGE_ID=$(jq -r '.id' <<< "$line")
       role=$(jq -r '.role' <<< "$line")
       text=$(jq -r '.text' <<< "$line")
 
@@ -557,7 +558,7 @@ attach-file() {
   filepath="${filepath%"${filepath##*[![:space:]]}"}"
 
   if [[ ! -f "$filepath" ]]; then
-    echo "File does not exist: '$filepath'" >&2
+    warn "File does not exist: '$filepath'"
     return 0
   fi
 
@@ -799,12 +800,15 @@ handle-parsed-message() {
     send-msg "$msg"
     sleep 0.5
   done
+
+  echo "${#messages[@]}"
 }
 
 chat() {
   local placeholder="ctrl-d submits | esc cancels | send \\f to attach a file | \\exec to embed 1-liner | \\begin..\\end to embed multi-line command"
   local needs_summary=false
   local initialized=false
+  local msgs_sent
   local msg
 
   # Come on, shellcheck, this is clearly a string, not an array. Seriously,
@@ -828,26 +832,16 @@ chat() {
     if [ "$initialized" == false ]; then
       if [ "$THREAD_LABEL" != "New chat with $ASSISTANT_NAME" ]; then
         info "Retrieving conversation..."
-        # shellcheck disable=SC2178
-        messages="$(list-messages)"
         move-chat-to-beginning-of-history
         clear
       fi
 
       initialized=true
-    else
-      # shellcheck disable=SC2178
-      messages="$(list-messages)"
     fi
 
-    # shellcheck disable=SC2128
-    while IFS= read -r line; do
-      printf "%s\n" "$line"
-    done <<< "$messages"
+    list-messages
 
     while true; do
-      echo
-
       msg=$(
         gum write \
           --width 140 \
@@ -877,7 +871,16 @@ chat() {
 
         *)
           IFS=$'\n' read -r -d '' -a parsed_lines < <(parse-message "$msg" && printf '\0')
-          handle-parsed-message "${parsed_lines[@]}"
+          msgs_sent=$(handle-parsed-message "${parsed_lines[@]}")
+
+          if [ "$msgs_sent" == 0 ]; then
+            break
+          fi
+
+          # If any messages were sent, update the display to show them while we
+          # wait for the thread to run.
+          list-messages
+
           spinner run-thread-and-wait
 
           if [ "$needs_summary" = true ]; then
@@ -1011,6 +1014,7 @@ assistant-menu() {
         ASSISTANT_ID="$(echo "$selected" | sed -E 's/.*id: ([^)]+).*/\1/')"
         ASSISTANT_NAME="$(echo "$selected" | sed -E 's/^(.*) \(id: [^)]+\)$/\1/')"
         save-selected-assistant
+        break
         ;;
     esac
   done
