@@ -483,6 +483,8 @@ get-random-polling-message() {
     "Raising crimson shields..."
     "Replacing dilithium crystals with new Folder's Crystals, let's see if engineering notices..."
     "Taking a break to watch some interdimensional cable..."
+    "LUDICROUS SPEED GO..."
+    "They've gone to plaid..."
   )
 
   local message_count=${#messages[@]}
