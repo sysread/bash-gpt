@@ -8,6 +8,17 @@ set -eu -o pipefail
 PROGRAM="${0##*/}"
 OPENAI_MODEL="${OPENAI_MODEL:-gpt-3.5-turbo-16k}"
 
+if [ -t 1 ]; then
+  # If stdout is a terminal, use a dark theme by default
+  GUM_FORMAT_THEME=${GUM_FORMAT_THEME:-dark}
+else
+  # Otherwise, use a use notty so we don't spew ANSI codes to non-terminals
+  GUM_FORMAT_THEME='notty'
+fi
+
+# Ensure that subshell commands inherit the theme
+export GUM_FORMAT_THEME
+
 # ------------------------------------------------------------------------------
 # Functions
 # ------------------------------------------------------------------------------
@@ -16,7 +27,7 @@ usage() {
   local exit_code="${1:-0}"
 
   gum format -- << EOL
-_usage: $PROGRAM [OPTIONS]_
+usage: $PROGRAM [OPTIONS]
 
 # Options
   * --help                show help information
@@ -94,7 +105,7 @@ cmd-usage() {
   local collected=('--help' 'show help information')
   local usage
 
-  usage="_usage: $PROGRAM $cmd [OPTIONS]_
+  usage="usage: $PROGRAM $cmd [OPTIONS]
 
 # Options"
 
