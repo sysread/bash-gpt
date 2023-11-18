@@ -380,20 +380,88 @@ cmd:list-files() {
 
 cmd:upload-file() {
   local file
+  local purpose
+  local mime
+  local temp_file=""
+  local supported_types
+  local is_supported
 
   if get-flag --help "$@"; then
     cmd-usage 'upload-file' 'FILE'
   fi
 
   file=$(get-config --file "$@") || die "upload-file: expected --file"
+  purpose=$(get-config --purpose "$@") || true
+
+  mime=$(file --mime-type -b "$file")
 
   if [ ! -f "$file" ]; then
     die "upload-file: file does not exist - $file"
   fi
 
+  if [ -z "$purpose" ]; then
+    purpose="assistants"
+  fi
+
+  # List of supported mime types
+  supported_types=(
+    "application/json"
+    "application/msword"
+    "application/pdf"
+    "application/vnd.ms-excel"
+    "application/vnd.ms-powerpoint"
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    "application/x-tar"
+    "application/xml"
+    "application/zip"
+    "image/gif"
+    "image/jpeg"
+    "image/png"
+    "text/css"
+    "text/csv"
+    "text/html"
+    "text/javascript"
+    "text/markdown"
+    "text/plain"
+    "text/x-c++src"
+    "text/x-csrc"
+    "text/x-java-source"
+    "text/x-php"
+    "text/x-python-script"
+    "text/x-ruby"
+    "text/x-tex"
+  )
+
+  # Check if mime type is supported
+  is_supported=false
+  for supported_mime in "${supported_types[@]}"; do
+    if [[ $mime == "$supported_mime" ]]; then
+      is_supported=true
+      break
+    fi
+  done
+
+  # Fudge it as a test file if possible
+  if [[ $is_supported == false ]]; then
+    temp_file=$(mktemp)
+    mv "$temp_file" "${temp_file}.txt"
+    temp_file="${temp_file}.txt"
+    cp "$file" "$temp_file"
+    file="$temp_file"
+    mime="text/plain"
+  fi
+
   request https://api.openai.com/v1/files \
-    -F purpose="assistants" \
+    -H 'Content-Type: multipart/form-data' \
+    -F purpose="$purpose" \
     -F file="@$file"
+
+  # Clean up temporary file if created
+  if [ -n "$temp_file" ]; then
+    rm "$temp_file"
+  fi
 }
 
 cmd:delete-file() {
