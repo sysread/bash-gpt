@@ -1,0 +1,36 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Github Retriever",
+    "description": "Retrieves files from the bash-gpt project on Github",
+    "version": "v1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://github.com/sysread/bash-gpt/blob/main"
+    }
+  ],
+  "paths": {
+    "/{file-path}": {
+      "get": {
+        "description": "Retrieve a specific file from the repository",
+        "operationId": "getFileFromRepo",
+        "parameters": [
+          {
+            "name": "file-path",
+            "in": "path",
+            "required": true,
+            "description": "The path to the file in the repository",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "deprecated": false
+      }
+    }
+  },
+  "components": {
+    "schemas": {}
+  }
+}
