@@ -1054,11 +1054,13 @@ CHAT_COMMANDS=(
 )
 
 chat() {
-  local placeholder="ctrl-d submits | esc cancels$(printf " | %s" "${CHAT_COMMANDS[@]}")"
+  local placeholder
   local needs_summary=false
   local initialized=false
   local msgs_sent
   local msg
+
+  placeholder="ctrl-d submits | esc cancels$(printf " | %s" "${CHAT_COMMANDS[@]}")"
 
   # Come on, shellcheck, this is clearly a string, not an array. Seriously,
   # `read` operates just fine on here-strings.
