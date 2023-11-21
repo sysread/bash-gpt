@@ -749,6 +749,56 @@ attach-command-output() {
 }
 
 # ------------------------------------------------------------------------------
+# Attaches the content of a URL to the current message. If the content is too
+# large, it is split up into multiple messages.
+# ------------------------------------------------------------------------------
+# shellcheck disable=SC2317
+attach-web-content() {
+  local url="$1"
+  local content
+  local msg
+
+  # Remove leading and trailing whitespace
+  url="${url#"${url%%[![:space:]]*}"}"
+  url="${url%"${url##*[![:space:]]}"}"
+
+  info "Fetching $url..."
+
+  if ! content=$(curl -s "$url"); then
+    warn "error fetching url: $url"
+    return 0
+  fi
+
+  if ((${#content} > MAX_MSG_SIZE)); then
+    local total_characters=${#content}
+    local part_no=0
+    local chunk
+    local pct
+
+    echo -e "The contents of \`$url\` are too large to send in a single message. Sending in multiple messages instead." | base64
+
+    while IFS= read -r -d '' chunk; do # Read until null byte
+      part_no=$((part_no + 1))
+
+      pct=$((part_no * MAX_FILE_SIZE * 100 / total_characters))
+      if ((pct > 100)); then
+        pct=100
+      fi
+
+      # shellcheck disable=SC2016
+      msg=$(printf 'Attached web content: `%s` (continued - part %s):\n```\n%s\n```' "$url" "$part_no" "$chunk")
+      echo -e "$msg" | base64
+
+      sleep 1 # Adding a short delay to avoid rapid message sending
+    done < <(split-into-chunks "$MAX_MSG_SIZE" "$content")
+  else
+    # shellcheck disable=SC2016
+    msg=$(printf 'Attached web content: `%s`\n```\n%s\n```\n' "$url" "$content")
+    echo -e "$msg" | base64
+  fi
+}
+
+# ------------------------------------------------------------------------------
 # Chat supports a number of embedded directives, like \f to attach a file, and
 # \exec to include the output of a command (or \begin + \end for a multi-line
 # command). This function parses the message into text, exec, and file
@@ -807,6 +857,9 @@ parse-message() {
       # File block
       elif [[ "$line" =~ ^\\f(.*) ]]; then
         parsed_lines+=("FILE ${BASH_REMATCH[1]}")
+      # Web block
+      elif [[ "$line" =~ ^\\www(.*) ]]; then
+        parsed_lines+=("WWW ${BASH_REMATCH[1]}")
       # Normal message
       else
         parsed_lines+=("TEXT $line")
@@ -850,6 +903,25 @@ handle-parsed-message() {
     case "$line" in
       TEXT*)
         text_content+=("${line#TEXT }")
+        ;;
+
+      WWW*)
+        if [ "${#text_content[@]}" -gt 0 ]; then
+          messages+=("$(join-by-newline "${text_content[@]}")")
+          text_content=()
+        fi
+
+        local url="${line#WWW }"
+        local msgs=()
+        local msg
+        readarray -t msgs < <(attach-web-content "$url")
+
+        for msg in "${msgs[@]}"; do
+          msg=$(base64 --decode <<< "$msg")
+          if [ -n "$msg" ]; then
+            messages+=("$msg")
+          fi
+        done
         ;;
 
       EXEC*)
@@ -921,6 +993,10 @@ print-user-msg() {
     msg=$(echo "$msg" | sed -n '1p')
   fi
 
+  if [[ "$msg" =~ ^Attached\ web\ content: ]]; then
+    msg=$(echo "$msg" | sed -n '1p')
+  fi
+
   gum style --foreground '#66FF66' --bold 'You:'
   gum format "$msg"
 }
@@ -969,8 +1045,16 @@ print-messages() {
 # Note that there are a few unadvertised directives that are not handled by
 # `parse-message` that are handled directly here. They are mainly for testing.
 # ------------------------------------------------------------------------------
+# shellcheck disable=SC2016
+CHAT_COMMANDS=(
+  '\f $filename'
+  '\www $url'
+  '\exec $cmd'
+  '\begin $cmd \end'
+)
+
 chat() {
-  local placeholder="ctrl-d submits | esc cancels | send \\f to attach a file | \\exec to embed 1-liner | \\begin..\\end to embed multi-line command"
+  local placeholder="ctrl-d submits | esc cancels$(printf " | %s" "${CHAT_COMMANDS[@]}")"
   local needs_summary=false
   local initialized=false
   local msgs_sent
