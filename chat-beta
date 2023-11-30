@@ -717,7 +717,7 @@ attach-command-output() {
   # Execute the command and capture its output
   command_output=$(eval "$command" 2>&1)
   command_status=$?
-  command_output=$(printf "\`\`\`sh\n\$ %s\n%s\n# exit status: %s\n\`\`\`" "$command" "$command_output" "$command_status")
+  command_output=$(printf "\`\`\`\n\$ %s\n%s\n# exit status: %s\n\`\`\`" "$command" "$command_output" "$command_status")
 
   if ((${#command_output} > MAX_MSG_SIZE)); then
     local total_characters=${#command_output}
@@ -998,18 +998,18 @@ print-user-msg() {
   fi
 
   gum style --foreground '#66FF66' --bold 'You:'
-  gum format "$msg"
+  gum format -- "$msg"
 }
 
 # ------------------------------------------------------------------------------
-# Prints out a formatted message from GPT.
+# Prints out a formatted message from GPT with correct handling of initial dashes.
 # ------------------------------------------------------------------------------
 # Called indirectly in print-message-callback
 # shellcheck disable=SC2317
 print-gpt-msg() {
   local msg="$1"
   gum style --foreground '#66CCFF' --bold "$ASSISTANT_NAME:"
-  gum format "$msg"
+  gum format -- "$msg"
 }
 
 # ------------------------------------------------------------------------------
