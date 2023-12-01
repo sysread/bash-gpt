@@ -119,6 +119,10 @@ cmd-usage() {
         collected+=('--before' 'a cursor to use for pagination (based on data[].id)')
         ;;
 
+      MODEL)
+        collected+=('--model' 'the model to use (default: $OPENAI_MODEL)')
+        ;;
+
       ASSISTANT)
         collected+=('--assistant' 'the id of the assistant (required)')
         ;;
