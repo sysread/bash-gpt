@@ -56,6 +56,31 @@ Library of small utility functions and aliases:
   - `image <prompt> [<size>] > image.png` - generate an image
   - `re-image <source-file> <prompt> > new-image.png` - modify an image
 
+# Beta features
+
+There are a couple of scripts that work with the [new beta APIs](https://openai.com/blog/new-models-and-developer-products-announced-at-devday).
+
+## `openai`
+
+The analog to the `gpt` utility above. It provides sub-commands to interact
+directly with the API.
+
+## `chat-beta`
+
+A much more advanced version of `chat` that works with the new API. The only
+thing is lacking is the streaming protocol, so you get to wait on the run to
+complete before you get your answers.
+
+On the other hand, you also get a lot of new features:
+
+- `\f $filepath` in your message to send the contents of a file
+- `\exec cmd --arg2 --arg2` to send the output of a command
+- `\begin ... \end` to send the output of a multi-line command
+- `\www https://example.com` to send the contents of a web page
+
+If the output of any of these is too large for a single message, it will be
+split into multiple numbered messages.
+
 # Dependencies
 
 - [`curl`](https://curl.se/)
