@@ -23,7 +23,14 @@ Simply execute `chat` and follow the menu prompts to start a conversation.
 Generates a command that can be directly executed in your `$SHELL`.
 
 ```bash
-cmd list files in the current directory with time stamps
+cmd 'list files in the current directory with time stamps'
+```
+
+If you want commands you execute with `cmd` to be added to your shell's history,
+add something like this to your `bashrc`:
+
+```bash
+alias cmd="source $(which cmd)"
 ```
 
 ## `code`
