@@ -7,6 +7,7 @@ set -eu -o pipefail
 # ------------------------------------------------------------------------------
 PROGRAM="${0##*/}"
 OPENAI_MODEL="${OPENAI_MODEL:-gpt-3.5-turbo-16k}"
+NOTTY=false
 
 if [ -t 1 ]; then
   # If stdout is a terminal, use a dark theme by default
@@ -14,6 +15,7 @@ if [ -t 1 ]; then
 else
   # Otherwise, use a use notty so we don't spew ANSI codes to non-terminals
   GUM_FORMAT_THEME='notty'
+  NOTTY=true
 fi
 
 # Ensure that subshell commands inherit the theme
@@ -36,6 +38,7 @@ usage: $PROGRAM [OPTIONS]
 
 ## Files
   * list-files            list files
+  * get-file              get info about a file
   * upload-file           upload a file
   * retrieve-file         retrieve a file's contents
   * delete-file           delete a file
@@ -159,6 +162,10 @@ cmd-usage() {
         collected+=('--file' 'the id of the file (required)')
         ;;
 
+      FILEPATH)
+        collected+=('--file' 'the path to the file (required)')
+        ;;
+
       CONTENT)
         collected+=('--content' 'the message to add (required)')
         ;;
@@ -195,6 +202,18 @@ cmd-usage() {
 
   printf '%s\n' "$usage" | gum format
   exit 0
+}
+
+wants-help() {
+  if get-flag --help "$@"; then
+    return 0
+  fi
+
+  if get-flag -h "$@"; then
+    return 0
+  fi
+
+  return 1
 }
 
 info() {
@@ -309,7 +328,12 @@ request() {
   ) || die "API connection error"
 
   response-ok "$response"
-  echo "$response"
+
+  if [ "$NOTTY" = true ]; then
+    echo "$response"
+  else
+    jq <<< "$response"
+  fi
 }
 
 request-beta() {
@@ -375,11 +399,23 @@ build-paginated-uri() {
 # Commands
 # ------------------------------------------------------------------------------
 cmd:list-files() {
-  if get-flag --help "$@"; then
+  if wants-help "$@"; then
     cmd-usage 'list-files'
   fi
 
   request https://api.openai.com/v1/files
+}
+
+cmd:get-file() {
+  local file_id
+
+  if wants-help "$@" || [ -z "$*" ]; then
+    cmd-usage 'get-file' 'FILE'
+  fi
+
+  file_id=$(get-config --file "$@") || die "get-file: expected --file"
+
+  request "https://api.openai.com/v1/files/$file_id"
 }
 
 cmd:upload-file() {
@@ -389,14 +425,16 @@ cmd:upload-file() {
   local temp_file=""
   local supported_types
   local is_supported
+  local file_name
 
-  if get-flag --help "$@"; then
-    cmd-usage 'upload-file' 'FILE'
+  if wants-help "$@" || [ -z "$*" ]; then
+    cmd-usage 'upload-file' 'FILEPATH' --purpose 'the purpose of the file (default: assistants; allowed: fine-tune|assistants)'
   fi
 
   file=$(get-config --file "$@") || die "upload-file: expected --file"
   purpose=$(get-config --purpose "$@") || true
 
+  file_name=$(basename "$file")
   mime=$(file --mime-type -b "$file")
 
   if [ ! -f "$file" ]; then
@@ -449,9 +487,8 @@ cmd:upload-file() {
 
   # Fudge it as a test file if possible
   if [[ $is_supported == false ]]; then
-    temp_file=$(mktemp)
-    mv "$temp_file" "${temp_file}.txt"
-    temp_file="${temp_file}.txt"
+    warn "$mime is not a supported mime type, attempting to upload as text/plain"
+    temp_file="/tmp/${file_name}.txt"
     cp "$file" "$temp_file"
     file="$temp_file"
     mime="text/plain"
@@ -471,7 +508,7 @@ cmd:upload-file() {
 cmd:delete-file() {
   local file
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'delete-file' 'FILE'
   fi
 
@@ -483,13 +520,13 @@ cmd:delete-file() {
 cmd:retrieve-file() {
   local file
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'retrieve-file' 'FILE'
   fi
 
   file=$(get-config --file "$@") || die "retrieve-file: expected --file"
 
-  request "https://api.openai.com/v1/files/$file"
+  request "https://api.openai.com/v1/files/$file/content"
 }
 
 cmd:create-assistant() {
@@ -501,7 +538,7 @@ cmd:create-assistant() {
   local files=()
   local tools=()
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'create-assistant' 'NAME' 'DESCRIPTION' 'INSTRUCTIONS' 'MODEL' 'FILE[]' 'META[]' 'TOOLS[]'
   fi
 
@@ -509,7 +546,7 @@ cmd:create-assistant() {
   instructions=$(get-config --instructions "$@") || die "create-assistant: expected --instructions"
   description=$(get-config --description "$@") || true
   model=$(get-config --model "$@") || true
-  get-config-multi --tool tools "$@" || true
+  get-config-multi --tools tools "$@" || true
   get-config-multi --file files "$@" || true
 
   if [ -z "$model" ]; then
@@ -547,7 +584,7 @@ cmd:modify-assistant() {
   local files=()
   local tools=()
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'modify-assistant' 'ASSISTANT' 'NAME' 'DESCRIPTION' 'INSTRUCTIONS' 'MODEL' 'TOOLS[]' 'FILE[]' 'META[]'
   fi
 
@@ -556,7 +593,7 @@ cmd:modify-assistant() {
   instructions=$(get-config --instructions "$@") || true
   description=$(get-config --description "$@") || true
   model=$(get-config --model "$@") || true
-  get-config-multi --tool tools "$@" || true
+  get-config-multi --tools tools "$@" || true
   get-config-multi --file files "$@" || true
 
   if [ -z "$model" ]; then
@@ -564,10 +601,19 @@ cmd:modify-assistant() {
   fi
 
   payload=$(jq -n '{}')
-  payload=$(jq --arg x "$model" '. + {"model": $x}' <<< "$payload")
-  payload=$(jq --arg x "$name" '. + {"name": $x}' <<< "$payload")
-  payload=$(jq --arg x "$instructions" '. + {"instructions": $x}' <<< "$payload")
   payload-meta payload "$@"
+
+  if [ -n "$model" ]; then
+    payload=$(jq --arg x "$model" '. + {"model": $x}' <<< "$payload")
+  fi
+
+  if [ -n "$name" ]; then
+    payload=$(jq --arg x "$name" '. + {"name": $x}' <<< "$payload")
+  fi
+
+  if [ -n "$instructions" ]; then
+    payload=$(jq --arg x "$instructions" '. + {"instructions": $x}' <<< "$payload")
+  fi
 
   if [ -n "$description" ]; then
     payload=$(jq --arg x "$description" '. + {"description": $x}' <<< "$payload")
@@ -587,7 +633,7 @@ cmd:modify-assistant() {
 cmd:get-assistant() {
   local assistant
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'get-assistant' 'ASSISTANT'
   fi
 
@@ -604,7 +650,7 @@ cmd:list-assistants() {
   local query
   local endpoint
 
-  if get-flag --help "$@"; then
+  if wants-help "$@"; then
     cmd-usage 'list-assistants' 'PAGINATION'
   fi
 
@@ -615,7 +661,7 @@ cmd:list-assistants() {
 cmd:delete-assistant() {
   local assistant
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'delete-assistant' 'ASSISTANT'
   fi
 
@@ -628,7 +674,7 @@ cmd:add-assistant-file() {
   local file
   local payload
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'add-assistant-file' 'ASSISTANT' 'FILE'
   fi
 
@@ -645,7 +691,7 @@ cmd:get-assistant-file() {
   local assistant
   local file
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'get-assistant-file' 'ASSISTANT' 'FILE'
   fi
 
@@ -659,7 +705,7 @@ cmd:delete-assistant-file() {
   local assistant
   local file
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'delete-assistant-file' 'ASSISTANT' 'FILE'
   fi
 
@@ -678,7 +724,7 @@ cmd:list-assistant-files() {
   local query
   local endpoint
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'list-assistant-files' 'PAGINATION' 'ASSISTANT'
   fi
 
@@ -691,7 +737,7 @@ cmd:list-assistant-files() {
 cmd:start-thread() {
   local payload
 
-  if get-flag --help "$@"; then
+  if wants-help "$@"; then
     cmd-usage 'start-thread' 'META[]'
   fi
 
@@ -705,7 +751,7 @@ cmd:modify-thread() {
   local thread
   local payload
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'modify-thread' 'THREAD' 'META[]'
   fi
 
@@ -720,7 +766,7 @@ cmd:modify-thread() {
 cmd:delete-thread() {
   local thread
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'delete-thread' 'THREAD'
   fi
 
@@ -732,7 +778,7 @@ cmd:delete-thread() {
 cmd:get-thread() {
   local thread
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'get-thread' 'THREAD'
   fi
 
@@ -748,7 +794,7 @@ cmd:add-message() {
 
   declare -a files
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'add-message' 'THREAD' 'FILE[]' 'CONTENT'
   fi
 
@@ -771,7 +817,7 @@ cmd:modify-message() {
   local message
   local payload
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'modify-message' 'THREAD' 'MESSAGE' 'META[]'
   fi
 
@@ -788,7 +834,7 @@ cmd:get-message() {
   local thread
   local message
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'get-message' 'THREAD' 'MESSAGE'
   fi
 
@@ -805,7 +851,7 @@ cmd:list-messages() {
   local after
   local before
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'list-messages' 'PAGINATION' 'THREAD'
   fi
 
@@ -819,7 +865,7 @@ cmd:run-thread() {
   local assistant
   local thread
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'run-thread' 'ASSISTANT' 'THREAD'
   fi
 
@@ -833,7 +879,7 @@ cmd:run-thread() {
 cmd:list-runs() {
   local thread
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'list-runs' 'THREAD'
   fi
 
@@ -845,7 +891,7 @@ cmd:get-run() {
   local thread
   local run
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'get-run' 'THREAD' 'RUN'
   fi
 
@@ -860,7 +906,7 @@ cmd:modify-run() {
   local run
   local payload
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'modify-run' 'THREAD' 'RUN' 'META[]'
   fi
 
@@ -877,7 +923,7 @@ cmd:cancel-run() {
   local thread
   local run
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'cancel-run' 'THREAD' 'RUN'
   fi
 
@@ -891,7 +937,7 @@ cmd:list-steps() {
   local thread
   local run
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'list-steps' 'THREAD' 'RUN'
   fi
 
@@ -906,7 +952,7 @@ cmd:get-step() {
   local run
   local step
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'get-step' 'THREAD' 'RUN' 'STEP'
   fi
 
@@ -924,7 +970,7 @@ cmd:get-completion() {
   local messages
   local payload
 
-  if get-flag --help "$@"; then
+  if wants-help "$@" || [ -z "$*" ]; then
     cmd-usage 'get-completion' 'MODEL' \
       '--system' 'the system "role" to use (e.g. "You are a helpful assistant.")' \
       '--prompt' 'the prompt to use (required)'
@@ -969,10 +1015,9 @@ main() {
     fi
   done
 
-  if get-flag --help "$@"; then
+  if wants-help "$@"; then
     usage 0
   fi
-
 }
 
 main "$@"
