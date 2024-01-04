@@ -113,6 +113,22 @@ git clone https://github.com/sysread/bash-gpt
 export PATH="$PATH:/path/to/bash-gpt"
 ```
 
+## With [Nix](https://nixos.org/)
+_Want an easy way to install nix? Checkout the [Determinite Systems Installer](https://github.com/DeterminateSystems/nix-installer)_
+
+1. Check out repository:
+```bash
+git clone https://github.com/sysread/bash-gpt
+```
+2. Add Env Vars to your shell environment
+- `OPENAI_API_KEY` - your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
+- `OPENAI_MODEL` - the [model](https://platform.openai.com/docs/models) to use; defaults to gpt-3.5-turbo-16k
+3. Run the nix shell
+```bash
+nix develop
+```
+
+
 ## Utils
 
 To use the utilities in `utils`, first download it:

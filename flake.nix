@@ -57,6 +57,7 @@
             if [ $OPENAI_API_KEY == "" ]; then
               echo "Please go to https://beta.openai.com/account/api-keys then set the OPEN_API_KEY environment variable"
             fi
+            exec $SHELL
 
           '';
 
