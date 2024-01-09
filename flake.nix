@@ -14,7 +14,11 @@
         env = import ./env.nix;
 
         nativeBuildInputs = with pkgs; [ ];
-        buildInputs = with pkgs; [ ];
+        buildInputs = with pkgs; [ 
+          gum 
+          jq 
+          curl 
+        ];
       in {
 
         packages.default = pkgs.stdenv.mkDerivation {
@@ -26,7 +30,6 @@
           installPhase = ''
             # Custom installation commands
             mkdir -p $out/bin
-            #cp gpt $out/bin 
             cp gpt $out/bin && chmod +x $out/bin/gpt
             cp openai $out/bin && chmod +x $out/bin/openai
             cp chat $out/bin && chmod +x $out/bin/chat
@@ -42,7 +45,6 @@
           installPhase = ''
             # Custom installation commands
             mkdir -p $out/bin
-            #cp gpt $out/bin 
             cp gpt $out/bin && chmod +x $out/bin/gpt
             cp openai $out/bin && chmod +x $out/bin/openai
             cp chat $out/bin && chmod +x $out/bin/chat
@@ -59,12 +61,9 @@
             then
               echo "Env File Already Generated"
             else
-              echo "OPENAI_API_KEY=\"\" 
-          OPENAI_API_MODEL=\"gpt-3.5-turbo-16k\" " >> .env
-
-              echo $FETCH_API_KEY_MESSAGE
-              echo $SET_API_KEY_MESSAGE
-              exit 1
+              MODEL=$(gum choose "gpt-3.5-turbo-16k" "gpt-4-1106-preview" "gpt-4")
+              echo OPENAI_API_KEY=$OPENAI_API_KEY >> .env
+              echo OPENAI_API_MODEL=$MODEL >> .env
             fi
 
             if [[ "$OPENAI_API_KEY" == "" ]]; then
