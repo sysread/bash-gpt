@@ -6,10 +6,11 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { nixpkgs, flake-utils, ... }:
+  outputs = { self, nixpkgs, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
 
+        sourceDir = self.packages.${system}.default;
         pkgs = nixpkgs.legacyPackages.${system};
         env = import ./env.nix;
 
@@ -18,6 +19,7 @@
           gum 
           jq 
           curl 
+          imagemagick
         ];
       in {
 
@@ -37,6 +39,7 @@
             cp code $out/bin && chmod +x $out/bin/code
             cp cmd $out/bin && chmod +x $out/bin/cmd
             cp tester $out/bin && chmod +x $out/bin/tester
+            cp utils $out/bin/bash-gpt-utils && chmod +x $out/bin/bash-gpt-utils && source $out/bin/bash-gpt-utils
           '';
         };
         devShells.default = pkgs.mkShell {
@@ -52,9 +55,12 @@
             cp code $out/bin && chmod +x $out/bin/code
             cp cmd $out/bin && chmod +x $out/bin/cmd
             cp tester $out/bin && chmod +x $out/bin/tester
+            cp reimagine.sh $out/bin/reimagine && chmod +x $out/bin/reimagine
+            cp utils $out/bin/bash-gpt-utils && chmod +x $out/bin/bash-gpt-utils
           '';
 
           shellHook = ''
+            ls ${sourceDir}/bin
             FETCH_API_KEY_MESSAGE="Please go to https://beta.openai.com/account/api-keys then set the OPEN_API_KEY environment variable"
             SET_API_KEY_MESSAGE="Please go to .env and update your environment variables."
             if source .env 
@@ -73,8 +79,10 @@
             fi
 
             echo "Welcome to Bash GPT!"
-            echo "Available commands: chat | chat-beta | code | cmd | tester"
-            exec $SHELL
+            echo "Available commands: chat | chat-beta | code | cmd | tester | image | re-image"
+
+            source ${sourceDir}/bin/bash-gpt-utils
+            
           '';
 
         };
