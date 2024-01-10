@@ -151,6 +151,8 @@ echo 'source /usr/local/lib/bash-gpt-utils' >> ~/.bashrc
 
 - `OPENAI_API_KEY` - your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
 - `OPENAI_MODEL` - the [model](https://platform.openai.com/docs/models) to use; defaults to gpt-3.5-turbo-16k
+- `BASH_GPT_CONVERSATION_HISTORY_DIR` - the directory to save `chat` conversations. Defaults to $HOME/.gpt/conversations 
+- `BASH_GPT_CHAT_HOME` - the directory to save `chat-beta` chats as well as assistant files. Defaults to `$HOME/.bashgpt/chat`
 
 # Support and compatibility
 

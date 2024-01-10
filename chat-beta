@@ -6,7 +6,7 @@ set -eu -o pipefail
 # Params
 # ------------------------------------------------------------------------------
 PROGRAM="${0##*/}"
-STORE="$HOME/.bashgpt/chat"
+STORE="${BASHGPT_CHAT_HOME:-$HOME/.bashgpt/chat}"
 CHAT_HISTORY_FILE="$STORE/chat-history"
 LAST_ASSISTANT_FILE="$STORE/last_assistant.conf"
 MAX_FILE_SIZE=30000
