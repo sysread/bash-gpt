@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+# ------------------------------------------------------------------------------
+# TODO
+#   - make it clear how to re-run a thread
+#   - while running a thread (and the spinner is displayed), escape cancels the run
+# ------------------------------------------------------------------------------
+
 set -eu -o pipefail
 
 # ------------------------------------------------------------------------------
@@ -614,6 +620,45 @@ split-into-chunks() {
 }
 
 # ------------------------------------------------------------------------------
+# Reads the file contents and prints them out. If there is an error, such as
+# a permissions issue or an invalid file path, the user is prompted to either
+# skip the file, enter a new file path, or try again.
+#
+# Prints out the file path, followed by a string delimited "###FILEPATH###",
+# then the file's contents.
+# ------------------------------------------------------------------------------
+readfile-for-attachment() {
+  local filepath="$1"
+  local content
+  local retry=true
+
+  while [ "$retry" = true ]; do
+    retry=false
+
+    if content=$(cat "$filepath" 2>&1); then
+      printf "%s###FILEPATH###%s" "$filepath" "$content"
+      return 0
+    else
+      local error_message=$content # Capture the error message
+      local choice=$(gum choose --header "Error reading file: $error_message" "Skip this file" "Enter a new file path" "Try again")
+
+      case "$choice" in
+        "Skip this file")
+          return 1 # Indicate to skip this file
+          ;;
+        "Enter a new file path")
+          filepath=$(gum input --prompt "Enter new file path: ")
+          retry=true
+          ;;
+        "Try again")
+          retry=true
+          ;;
+      esac
+    fi
+  done
+}
+
+# ------------------------------------------------------------------------------
 # Attaches a file to the current message. If no file is specified, the user is
 # prompted to select one. If the file is too large, the user is prompted to
 # either truncate the file or split it into multiple messages. Regardless of
@@ -639,12 +684,11 @@ attach-file() {
   # Remove trailing whitespace, if any
   filepath="${filepath%"${filepath##*[![:space:]]}"}"
 
-  if [[ ! -f "$filepath" ]]; then
-    warn "File does not exist: '$filepath'"
-    return 0
-  fi
-
-  content=$(< "$filepath")
+  # Read the file contents, giving the user an opportunity to handle file read
+  # errors.
+  file_info=$(readfile-for-attachment "$filepath") || return $?
+  filepath=$(awk -F'###FILEPATH###' '{print $1}' <<< "$file_info")
+  content=$(awk -F'###FILEPATH###' '{print $2}' <<< "$file_info")
 
   if ((${#content} > MAX_FILE_SIZE)); then
     warn "The file content exceeds the maximum allowed size."
@@ -952,14 +996,16 @@ handle-parsed-message() {
         local file_path="${line#FILE }"
         local msgs=()
         local msg
-        readarray -t msgs < <(attach-file "${file_path}")
-
-        for msg in "${msgs[@]}"; do
-          msg=$(base64 --decode <<< "$msg")
-          if [ -n "$msg" ]; then
-            messages+=("$msg")
-          fi
-        done
+        if readarray -t msgs < <(attach-file "${file_path}"); then
+          for msg in "${msgs[@]}"; do
+            msg=$(base64 --decode <<< "$msg")
+            if [ -n "$msg" ]; then
+              messages+=("$msg")
+            fi
+          done
+        else
+          warn "Failed to attach file: ${file_path}. Skipping file attachment."
+        fi
         ;;
 
       *)
