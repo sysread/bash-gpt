@@ -1163,6 +1163,12 @@ chat() {
 
         '\run')
           spinner run-thread-and-wait
+
+          if [ "$needs_summary" = true ]; then
+            save-to-chat-history
+            needs_summary=false
+          fi
+
           break
           ;;
 
