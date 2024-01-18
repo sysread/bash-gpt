@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
 
-# ------------------------------------------------------------------------------
-# TODO
-#   - make it clear how to re-run a thread
-#   - while running a thread (and the spinner is displayed), escape cancels the run
-# ------------------------------------------------------------------------------
-
 set -eu -o pipefail
 
 # ------------------------------------------------------------------------------
@@ -235,6 +229,19 @@ run-thread() {
     die "$result"
   else
     jq -r '.id' <<< "$result"
+  fi
+}
+
+# ------------------------------------------------------------------------------
+# Cancels a thread run.
+# ------------------------------------------------------------------------------
+# Called in `trap` by `run-thread-and-wait`
+# shellcheck disable=2317
+cancel-run() {
+  if openai cancel-run --thread "$THREAD_ID" --run "$1" &> /dev/null; then
+    warn "Cancelled running thread."
+  else
+    warn "Unable to cancel running thread. It likely completed before we could cancel it."
   fi
 }
 
@@ -509,18 +516,80 @@ get-random-polling-message() {
 }
 
 # ------------------------------------------------------------------------------
-# The spinner creates temp files to store the output (both stdout and stderr)
-# of the command it is running in the background. This function deletes the
-# temp files and is called when the spinner exits (of if the command fails,
-# there is a `trap` that calls it).
+# These variables control the spinner's state and the result of executing the
+# sub-process. They are initialized by `start-spinner` and cleaned up by
+# `cleanup-spinner`.
 # ------------------------------------------------------------------------------
-SPINNER_TMP_FILES=()
-cleanup-spinner() {
-  for temp_file in "${SPINNER_TMP_FILES[@]}"; do
-    rm -f "$temp_file"
+SPINNER_STATE="READY"
+SPINNER_PID=
+SPINNER_EXIT_STATUS=
+
+# ------------------------------------------------------------------------------
+# These variables are used by the spinner to store the temporary files it
+# uses to communicate with the sub-process it is running. They are initialized
+# by `init-spinner` and cleaned up by `cleanup-spinner`.
+# ------------------------------------------------------------------------------
+SPINNER_STDOUT=
+SPINNER_STDERR=
+SPINNER_STOPFILE=
+
+start-spinner() {
+  if [ "$SPINNER_STATE" != "READY" ]; then
+    warn "The spinner is already running! ...or maybe it was never cleaned up properly?"
+    return 1
+  fi
+
+  SPINNER_STOPFILE=$(mktemp)
+  SPINNER_STDOUT=$(mktemp)
+  SPINNER_STDERR=$(mktemp)
+
+  # Run the command in the background, redirecting stdout and stderr
+  ("$@" > "$SPINNER_STDOUT" 2> "$SPINNER_STDERR") &
+  SPINNER_PID="$!"
+
+  # Set the spinner state
+  SPINNER_STATE="RUNNING"
+}
+
+await-spinner() {
+  local gum_exit_status
+
+  # Temporarily disable exit on error
+  set +e
+
+  # Poll for subprocess status
+  while kill -0 "$SPINNER_PID" 2> /dev/null; do
+    gum spin -s dot --title.foreground="#66FF66" --title "$(get-random-polling-message)" -- sleep 3
+    gum_exit_status=$?
+
+    if [ "$gum_exit_status" -ne 0 ]; then
+      kill -TERM "$SPINNER_PID"
+      break
+    fi
   done
 
-  SPINNER_TMP_FILES=()
+  # Wait for the command to finish and capture its exit status
+  wait "$SPINNER_PID"
+  SPINNER_EXIT_STATUS=$?
+
+  set -e
+}
+
+# ------------------------------------------------------------------------------
+# Deletes the temporary files used by the spinner and restores the original
+# signal handlers.
+# ------------------------------------------------------------------------------
+# shellcheck disable=SC2064
+cleanup-spinner() {
+  if [ "$SPINNER_STATE" == "READY" ]; then
+    return 0
+  fi
+
+  rm -f "$SPINNER_STDOUT" "$SPINNER_STDERR" "$SPINNER_STOPFILE"
+
+  SPINNER_STATE="READY"
+  SPINNER_PID=
+  SPINNER_EXIT_STATUS=
 }
 
 # ------------------------------------------------------------------------------
@@ -530,40 +599,23 @@ cleanup-spinner() {
 # shell's stderr and stdout.
 # ------------------------------------------------------------------------------
 spinner() {
-  local stdout
-  local stderr
-  local cmd_pid
-  local cmd_exit_status
+  local exit_status
 
-  stdout=$(mktemp)
-  stderr=$(mktemp)
-  SPINNER_TMP_FILES+=("$stdout" "$stderr")
+  start-spinner "$@"
+  await-spinner
 
-  # Set trap to ensure cleanup runs on exit and interrupt
-  trap cleanup-spinner EXIT INT TERM
-
-  # Run the command in the background, redirecting stdout and stderr
-  ("$@" > "$stdout" 2> "$stderr") &
-  cmd_pid=$!
-
-  # Poll for subprocess status
-  while kill -0 "$cmd_pid" 2> /dev/null; do
-    gum spin -s dot --title.foreground="#66FF66" --title "$(get-random-polling-message)" -- sleep 3
-  done
-
-  # Wait for the command to finish and capture its exit status
-  wait "$cmd_pid"
-  cmd_exit_status=$?
+  # Capture the exit status of the command
+  exit_status="$SPINNER_EXIT_STATUS"
 
   # Output the command's stdout and stderr
-  cat "$stdout"
-  cat "$stderr" >&2
+  cat "$SPINNER_STDOUT"
+  cat "$SPINNER_STDERR" >&2
 
-  # Remove the temporary files
+  # Remove the temporary files and reset the spinner's state
   cleanup-spinner
 
   # Return the exit status of the command
-  return $cmd_exit_status
+  return $exit_status
 }
 
 # ------------------------------------------------------------------------------
@@ -579,6 +631,9 @@ run-thread-and-wait() {
 
   run_id=$(run-thread)
 
+  # shellcheck disable=SC2064
+  trap "cancel-run $run_id" TERM
+
   while true; do
     status=$(get-run-status "$run_id")
 
@@ -590,6 +645,10 @@ run-thread-and-wait() {
 
       completed)
         return 0
+        ;;
+
+      cancelling | cancelled)
+        return 1
         ;;
 
       *)
@@ -1097,6 +1156,7 @@ CHAT_COMMANDS=(
   '\www $url'
   '\exec $cmd'
   '\begin $cmd \end'
+  '\run'
 )
 
 chat() {
@@ -1162,11 +1222,13 @@ chat() {
           ;;
 
         '\run')
-          spinner run-thread-and-wait
+          info "Requesting a new response to the conversation..."
 
-          if [ "$needs_summary" = true ]; then
-            save-to-chat-history
-            needs_summary=false
+          if spinner run-thread-and-wait; then
+            if [ "$needs_summary" = true ]; then
+              save-to-chat-history
+              needs_summary=false
+            fi
           fi
 
           break
@@ -1184,11 +1246,11 @@ chat() {
           # wait for the thread to run.
           print-messages
 
-          spinner run-thread-and-wait
-
-          if [ "$needs_summary" = true ]; then
-            save-to-chat-history
-            needs_summary=false
+          if spinner run-thread-and-wait; then
+            if [ "$needs_summary" = true ]; then
+              save-to-chat-history
+              needs_summary=false
+            fi
           fi
 
           break
