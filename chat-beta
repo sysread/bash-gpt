@@ -679,6 +679,13 @@ split-into-chunks() {
 }
 
 # ------------------------------------------------------------------------------
+# Asks the user to select a file with autocomplete.
+# ------------------------------------------------------------------------------
+select-file() {
+  find . -type f | grep -v '.git' | gum filter --header "$1" --fuzzy
+}
+
+# ------------------------------------------------------------------------------
 # Reads the file contents and prints them out. If there is an error, such as
 # a permissions issue or an invalid file path, the user is prompted to either
 # skip the file, enter a new file path, or try again.
@@ -706,7 +713,7 @@ readfile-for-attachment() {
           return 1 # Indicate to skip this file
           ;;
         "Enter a new file path")
-          filepath=$(gum input --prompt "Enter new file path: ")
+          filepath=$(select-file "Enter a new file path")
           retry=true
           ;;
         "Try again")
@@ -732,7 +739,7 @@ attach-file() {
   local msg
 
   if [ -z "$*" ]; then
-    filepath=$(find . -type f | grep -v '.git' | gum filter --header 'Select a file to attach' --fuzzy) || return 0
+    filepath=$(select-file "Select a file to attach") || return 0
   else
     filepath="$1"
   fi
