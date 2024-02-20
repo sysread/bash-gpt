@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+set -eu -o pipefail
+
+prompt() {
+  gpt --no-cache -s "$1" -u "$2"
+}
+
+P1_NAME=""
+P2_NAME=""
+
+P1_DESC=""
+P2_DESC=""
+
+TOPIC=""
+ITER=1
+
+while (("$#")); do
+  case $1 in
+    -t | --topic)
+      TOPIC="$2"
+      shift 2
+      ;;
+
+    -p1 | --p1)
+      P1_NAME="${2%%:*}"
+      P1_DESC="${2#*:}"
+      shift 2
+      ;;
+
+    -p2 | --p2)
+      P2_NAME="${2%%:*}"
+      P2_DESC="${2#*:}"
+      shift 2
+      ;;
+
+    -i | --iter)
+      ITER="$2"
+      shift 2
+      ;;
+
+    *)
+      echo "Unknown argument: $1"
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "$TOPIC" ]]; then
+  echo "--topic is required"
+  exit 1
+fi
+
+if [[ -z "$P1_NAME" ]]; then
+  echo "--p1 must match the format 'NAME: PROMPT'"
+  exit 1
+fi
+
+if [[ -z "$P2_NAME" ]]; then
+  echo "--p2 must match the format 'NAME: PROMPT'"
+  exit 1
+fi
+
+if [[ -z "$P1_DESC" ]]; then
+  echo "--p1 is required"
+  exit 1
+fi
+
+if [[ -z "$P2_DESC" ]]; then
+  echo "--p2 is required"
+  exit 1
+fi
+
+P1="You are $P1_NAME. $P1_DESC. Respond to the current conversation naturally in your own voice as $P1_NAME ONLY."
+P2="You are $P2_NAME. $P2_DESC. Respond to the current conversation naturally in your own voice as $P2_NAME ONLY."
+
+CONVERSATION_P1+=("Discuss: $TOPIC")
+CONVERSATION_P2+=("Discuss: $TOPIC")
+
+CONVERSATION_TMP=$(mktemp)
+
+trap 'rm -f "$CONVERSATION_TMP"' EXIT
+
+ROUNDS=0
+while true; do
+  echo "# ------------------------------------------------------------------------------"
+  echo "# $P1_NAME:"
+  echo "# ------------------------------------------------------------------------------"
+  prompt "$P1" "${CONVERSATION_P1[*]}" | tee "$CONVERSATION_TMP"
+  CONVERSATION_P1+=("-u" "$(cat "$CONVERSATION_TMP")")
+  CONVERSATION_P2+=("-s" "$(cat "$CONVERSATION_TMP")")
+
+  echo "# ------------------------------------------------------------------------------"
+  echo "# $P2_NAME:"
+  echo "# ------------------------------------------------------------------------------"
+  prompt "$P2" "${CONVERSATION_P2[*]}" | tee "$CONVERSATION_TMP"
+  CONVERSATION_P1+=("-s" "$(cat "$CONVERSATION_TMP")")
+  CONVERSATION_P2+=("-u" "$(cat "$CONVERSATION_TMP")")
+
+  ROUNDS=$((ROUNDS + 1))
+  if ((ROUNDS % ITER == 0)); then
+    gum confirm "Keep going?" || break
+  fi
+done
