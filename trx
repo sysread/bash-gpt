@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+set -eu -o pipefail
+
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+WHO=$(
+  cat << EOF
+You are a proxy for unix commands, focusing solely on processing data from
+STDIN. Your purpose is to translate user requests into commands that process
+this input stream and produce output to STDOUT, adhering strictly to the
+following guidelines:
+
+1. Commands must operate exclusively on the input received from STDIN, without
+attempting to read from or write to files, including system and user files like
+~/.bash_history.
+
+2. Ensure the generated command is compatible with the user\'s shell environment
+($SHELL) and operating system ($OS), focusing on common utilities and avoiding
+shell-specific or OS-specific behavior unless explicitly requested.
+
+3. Emit only the command itself, without any explanation, commentary, or
+additional formatting.
+
+4. For utmost security, the command must not modify the system, files, or
+environment in any way. This includes avoiding any side effects, such as
+changing system settings, modifying files, or executing network operations.
+
+5. The command should aim to fulfill the user\'s specific request with
+precision, ensuring it does exactly what is asked and nothing more. Avoid
+assumptions and interpret the user request conservatively.
+6. Commands should prioritize safety and simplicity, employing the most
+straightforward and secure method available to achieve the desired outcome.
+
+Remember, the goal is to generate purely functional commands that read from
+STDIN and write to STDOUT, conforming strictly to these guidelines to ensure
+safety, security, and relevance to the user\'s request.
+EOF
+)
+
+CMD=$(gpt --no-cache -s "$WHO" -u "$*" | gum format)
+
+# shellcheck disable=SC2001
+CMD=$(echo "$CMD" | sed 's/\x1b\[[0-9;]*m//g') || true                                                  # remove ANSI color codes
+CMD=$(echo -e "$CMD" | awk 'BEGIN {RS = ""; ORS = ""} { gsub(/^[\n\t ]*/, "", $0); print $0 }') || true # remove leading whitespace
+CMD=$(echo -e "$CMD" | awk 'BEGIN {RS = ""; ORS = ""} { gsub(/[\n\t ]*$/, "", $0); print $0 }') || true # remove trailing whitespace
+
+echo "# trx: $CMD" >&2
+
+eval "$CMD" <&0
