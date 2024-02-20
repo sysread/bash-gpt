@@ -931,13 +931,19 @@ parse-message() {
       else
         is_in_code_fence=true
       fi
+
       parsed_lines+=("TEXT $line")
+
     # We're not in a code fence - GAME ON
     elif [ "$is_in_code_fence" != true ]; then
+      # ------------------------------------------------------------------------
+      # Command block
+      # ------------------------------------------------------------------------
       # Beginning of command block
       if [[ "$line" == \\begin ]]; then
         inside_command_block=true
         command_block=""
+
       # End of command block
       elif [[ "$line" == \\end ]] && $inside_command_block; then
         inside_command_block=false
@@ -947,6 +953,7 @@ parse-message() {
         fi
 
         command_block=""
+
       # Inside of command block - collect commands
       elif $inside_command_block; then
         if [[ "$line" =~ \\$ ]]; then
@@ -961,16 +968,28 @@ parse-message() {
 
           command_block=""
         fi
+
+      # ------------------------------------------------------------------------
       # Single line command
+      # ------------------------------------------------------------------------
       elif [[ "$line" =~ ^\\exec\ (.*) ]]; then
         parsed_lines+=("EXEC ${BASH_REMATCH[1]}")
+
+      # ------------------------------------------------------------------------
       # File block
+      # ------------------------------------------------------------------------
       elif [[ "$line" =~ ^\\f(.*) ]]; then
         parsed_lines+=("FILE ${BASH_REMATCH[1]}")
+
+      # ------------------------------------------------------------------------
       # Web block
+      # ------------------------------------------------------------------------
       elif [[ "$line" =~ ^\\www(.*) ]]; then
         parsed_lines+=("WWW ${BASH_REMATCH[1]}")
+
+      # ------------------------------------------------------------------------
       # Normal message
+      # ------------------------------------------------------------------------
       else
         parsed_lines+=("TEXT $line")
       fi
