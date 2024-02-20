@@ -755,8 +755,9 @@ attach-file() {
   file_info=$(readfile-for-attachment "$filepath") || return $?
   filepath=$(awk -F'###FILEPATH###' '{print $1}' <<< "$file_info")
   content=$(awk -F'###FILEPATH###' '{print $2}' <<< "$file_info")
+  content_length=$(wc -m <<< "$content")
 
-  if ((${#content} > MAX_FILE_SIZE)); then
+  if ((content_length > MAX_FILE_SIZE)); then
     warn "The file content exceeds the maximum allowed size."
 
     action_truncate="Truncate file to fit the limit"
