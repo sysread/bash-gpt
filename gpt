@@ -50,7 +50,7 @@ Options:
 
 Environmental variables:
 
-  OPENAI_API_KEY      your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
+  OPENAI_API_KEY      your OpenAI API key (required; create one at https://platform.openai.com/account/api-keys)
   OPENAI_MODEL        the model to use; defaults to gpt-3.5-turbo-16k
   BASHGPT_CACHE_DIR   the directory to store cached results; defaults to \$HOME/.bashgpt_cache
 

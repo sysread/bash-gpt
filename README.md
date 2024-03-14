@@ -2,10 +2,16 @@
 
 # Utilities provided
 
+## `openai`
+
+Provides direct access to OpenAI API endpoints for the assistants and threads
+APIs.
+
 ## `gpt`
 
 Sends a prompt or series of prompts to the OpenAI discussions API and outputs
-the response as it arrives.
+the response as it arrives. This uses the (now possibly legacy?) `chat` API
+endpoint.
 
 ```bash
 gpt -s 'You are a helpful assistant' \
@@ -56,36 +62,18 @@ Library of small utility functions and aliases:
   - `image <prompt> [<size>] > image.png` - generate an image
   - `re-image <source-file> <prompt> > new-image.png` - modify an image
 
-# Beta features
-
-There are a couple of scripts that work with the [new beta APIs](https://openai.com/blog/new-models-and-developer-products-announced-at-devday).
-
-## `openai`
-
-The analog to the `gpt` utility above. It provides sub-commands to interact
-directly with the API.
-
-## `chat-beta`
-
-A much more advanced version of `chat` that works with the new API. The only
-thing is lacking is the streaming protocol, so you get to wait on the run to
-complete before you get your answers.
-
-On the other hand, you also get a lot of new features:
-
-- `\f $filepath` in your message to send the contents of a file
-- `\exec cmd --arg2 --arg2` to send the output of a command
-- `\begin ... \end` to send the output of a multi-line command
-- `\www https://example.com` to send the contents of a web page
-
-If the output of any of these is too large for a single message, it will be
-split into multiple numbered messages.
-
 # Dependencies
 
 - [`curl`](https://curl.se/)
 - [`jq`](https://github.com/jqlang/jq)
 - [`gum`](https://github.com/charmbracelet/gum)
+
+# Environment variables
+
+- `OPENAI_API_KEY` - your OpenAI API key (required; create one at https://platform.openai.com/account/api-keys)
+- `OPENAI_MODEL` - the [model](https://platform.openai.com/docs/models) to use; defaults to gpt-3.5-turbo-16k
+- `BASHGPT_CACHE_DIR` - `gpt` memoizes responses to prompts here; defaults to `$HOME/.bashgpt_cache`
+- `BASHGPT_CHAT_HOME` - `chat` stores its index of conversations here; defaults to `$HOME/.bashgpt/chat/chat-history`
 
 # Installation
 
@@ -126,7 +114,7 @@ git clone https://github.com/sysread/bash-gpt
 OPENAI_API_KEY=""
 OPENAI_API_MODEL="gpt-3.5-turbo-16k"
 ```
-- `OPENAI_API_KEY` - your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
+- `OPENAI_API_KEY` - your OpenAI API key (required; create one at https://platform.openai.com/account/api-keys)
 - `OPENAI_MODEL` - the [model](https://platform.openai.com/docs/models) to use; defaults to gpt-3.5-turbo-16k
 3. Run the nix shell
 ```bash
@@ -146,13 +134,6 @@ Then add it to your `.bashrc` or `.bash_profile`:
 ```bash
 echo 'source /usr/local/lib/bash-gpt-utils' >> ~/.bashrc
 ```
-
-# Environment variables
-
-- `OPENAI_API_KEY` - your OpenAI API key (required; create one at https://beta.openai.com/account/api-keys)
-- `OPENAI_MODEL` - the [model](https://platform.openai.com/docs/models) to use; defaults to gpt-3.5-turbo-16k
-- `BASH_GPT_CONVERSATION_HISTORY_DIR` - the directory to save `chat` conversations. Defaults to $HOME/.gpt/conversations 
-- `BASH_GPT_CHAT_HOME` - the directory to save `chat-beta` chats as well as assistant files. Defaults to `$HOME/.bashgpt/chat`
 
 # Support and compatibility
 
