@@ -134,6 +134,10 @@ cmd-usage() {
         collected+=('--thread' 'the id of the thread (required)')
         ;;
 
+      STREAM)
+        collected+=('--stream' 'stream the output')
+        ;;
+
       RUN)
         collected+=('--run' 'the id of the run (required)')
         ;;
@@ -338,6 +342,26 @@ request() {
 
 request-beta() {
   request "$@" -H "OpenAI-Beta: assistants=v1"
+}
+
+stream-request() {
+  local args=("$@")
+  local response
+  local event
+
+  curl -sN \
+    "${args[@]}" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H "Content-Type: application/json" \
+    -H "OpenAI-Beta: assistants=v1" \
+    | while IFS= read -r line; do
+      if [[ "$line" == "event: "* ]]; then
+        event=${line#event: }
+        continue
+      elif [[ "$event" == "thread.message.delta" ]] && [[ "$line" == "data: "* ]]; then
+        jq -rj '.delta.content[].text.value' <<< "${line#data: }"
+      fi
+    done
 }
 
 response-ok() {
@@ -866,14 +890,19 @@ cmd:run-thread() {
   local thread
 
   if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'run-thread' 'ASSISTANT' 'THREAD'
+    cmd-usage 'run-thread' 'ASSISTANT' 'THREAD' 'STREAM'
   fi
 
   assistant=$(get-config --assistant "$@") || die "run-thread: expected --assistant"
   thread=$(get-config --thread "$@") || die "run-thread: expected --thread"
 
-  request-beta "https://api.openai.com/v1/threads/$thread/runs" \
-    -d "{\"assistant_id\": \"$assistant\"}"
+  if get-flag --stream "$@"; then
+    stream-request "https://api.openai.com/v1/threads/$thread/runs" \
+      -d "{\"assistant_id\": \"$assistant\", \"stream\": true}"
+  else
+    request-beta "https://api.openai.com/v1/threads/$thread/runs" \
+      -d "{\"assistant_id\": \"$assistant\"}"
+  fi
 }
 
 cmd:list-runs() {
