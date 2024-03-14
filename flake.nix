@@ -35,7 +35,6 @@
             cp gpt $out/bin && chmod +x $out/bin/gpt
             cp openai $out/bin && chmod +x $out/bin/openai
             cp chat $out/bin && chmod +x $out/bin/chat
-            cp chat-beta $out/bin && chmod +x $out/bin/chat-beta
             cp code $out/bin && chmod +x $out/bin/code
             cp cmd $out/bin && chmod +x $out/bin/cmd
             cp tester $out/bin && chmod +x $out/bin/tester
@@ -51,7 +50,6 @@
             cp gpt $out/bin && chmod +x $out/bin/gpt
             cp openai $out/bin && chmod +x $out/bin/openai
             cp chat $out/bin && chmod +x $out/bin/chat
-            cp chat-beta $out/bin && chmod +x $out/bin/chat-beta
             cp code $out/bin && chmod +x $out/bin/code
             cp cmd $out/bin && chmod +x $out/bin/cmd
             cp tester $out/bin && chmod +x $out/bin/tester
@@ -61,7 +59,7 @@
 
           shellHook = ''
             ls ${sourceDir}/bin
-            FETCH_API_KEY_MESSAGE="Please go to https://beta.openai.com/account/api-keys then set the OPEN_API_KEY environment variable"
+            FETCH_API_KEY_MESSAGE="Please go to https://platform.openai.com/account/api-keys then set the OPEN_API_KEY environment variable"
             SET_API_KEY_MESSAGE="Please go to .env and update your environment variables."
             if source .env 
             then
@@ -79,7 +77,7 @@
             fi
 
             echo "Welcome to Bash GPT!"
-            echo "Available commands: chat | chat-beta | code | cmd | tester | image | re-image"
+            echo "Available commands: chat | openai | gpt | code | cmd | tester | image | re-image"
 
             source ${sourceDir}/bin/bash-gpt-utils
             
