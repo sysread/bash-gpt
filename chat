@@ -261,17 +261,14 @@ get-run-status() {
 # ------------------------------------------------------------------------------
 list-messages() {
   local callback=$1
-  local limit=${2:-100}
-  local get_all=${3:-true}
   local messages
   local role
   local text
   local has_more=true
   local lines
-  local orig_message_id="$MESSAGE_ID"
 
   while [ "$has_more" == true ]; do
-    messages=$(openai list-messages --thread "$THREAD_ID" --order "asc" --after "$MESSAGE_ID" --limit "$limit")
+    messages=$(openai list-messages --thread "$THREAD_ID" --order "asc" --after "$MESSAGE_ID")
     has_more=$(jq -r '.has_more' <<< "$messages")
 
     IFS=$'\n' read -r -d '' -a lines < <(jq -c '.data[] | {id: .id, role: .role, text: .content[0].text.value}' <<< "$messages" && printf '\0')
@@ -284,15 +281,7 @@ list-messages() {
       # Call the callback function with necessary parameters
       "$callback" "$role" "$text"
     done
-
-    if [ "$get_all" == false ]; then
-      break
-    fi
   done
-
-  if [ "$get_all" == false ]; then
-    MESSAGE_ID="$orig_message_id"
-  fi
 }
 
 # ------------------------------------------------------------------------------
@@ -1141,7 +1130,7 @@ summarize-chat() {
   get-completion \
     'gpt-3.5-turbo-16k' \
     'You are a bot that summarizes conversations tersely' \
-    "$(list-messages 6 false)\n\nSummarize the above conversation in 10 words or less"
+    "$(openai list-messages --thread "$THREAD_ID" --order asc)\n\nSummarize the above conversation in 10 words or less"
 }
 
 # ------------------------------------------------------------------------------
