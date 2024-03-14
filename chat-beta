@@ -21,6 +21,9 @@ THREAD_ID=""
 THREAD_LABEL=""
 MESSAGE_ID=""
 
+CONVERSATION_TMP=$(mktemp)
+trap 'rm -f $CONVERSATION_TMP' TERM
+
 # ------------------------------------------------------------------------------
 # Functions
 # ------------------------------------------------------------------------------
@@ -217,32 +220,14 @@ send-msg() {
 }
 
 # ------------------------------------------------------------------------------
-# Lists the messages in the current thread.
+# Retrieves GPT's response to the current thread, streaming the output to
+# STDOUT.
 # ------------------------------------------------------------------------------
-# Called in bg proc using the spinner
-# shellcheck disable=2317
-run-thread() {
-  local result
-
-  if ! result=$(openai run-thread --assistant "$ASSISTANT_ID" --thread "$THREAD_ID"); then
-    warn "error running thread"
-    die "$result"
-  else
-    jq -r '.id' <<< "$result"
-  fi
-}
-
-# ------------------------------------------------------------------------------
-# Cancels a thread run.
-# ------------------------------------------------------------------------------
-# Called in `trap` by `run-thread-and-wait`
-# shellcheck disable=2317
-cancel-run() {
-  if openai cancel-run --thread "$THREAD_ID" --run "$1" &> /dev/null; then
-    warn "Cancelled running thread."
-  else
-    warn "Unable to cancel running thread. It likely completed before we could cancel it."
-  fi
+get-response() {
+  print-gpt-msg
+  echo
+  openai run-thread --assistant "$ASSISTANT_ID" --thread "$THREAD_ID" --stream
+  echo
 }
 
 # ------------------------------------------------------------------------------
@@ -469,197 +454,6 @@ restore-selected-assistant() {
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# The fun bit here is that I had GPT generate these messages. Meta AF, me.
-# ------------------------------------------------------------------------------
-# Initialize a global variable to store the last message index. Set to an invalid value initially.
-LAST_MESSAGE_IDX=-1
-
-get-random-polling-message() {
-  local messages=(
-    "Analyzing tensor matrices..."
-    "Consulting with virtual neurons..."
-    "Channeling the computational oracles..."
-    "Calibrating language models..."
-    "Propagating activations through the network..."
-    "Optimizing synaptic connections virtually..."
-    "Invoking the syntactic synthesis..."
-    "Querying the knowledge graph..."
-    "Counting electric sheep..."
-    "Activating interlocks..."
-    "Connecting dinotherms..."
-    "Bringing up infracells..."
-    "Megathrusters are go..."
-    "Backfilling the quantum carburator..."
-    "Bifurcating Schrödinger's catscan..."
-    "Reversing the polarity of the flux quantum..."
-    "Reconfiguring the quantum plumbus..."
-    "Raising crimson shields..."
-    "Replacing dilithium crystals with new Folder's Crystals, let's see if engineering notices..."
-    "Taking a break to watch some interdimensional cable..."
-    "LUDICROUS SPEED GO..."
-    "They've gone to plaid..."
-  )
-
-  local message_count=${#messages[@]}
-  local idx
-
-  # Generate a random index, but ensure it's not the same as the last one
-  while :; do
-    idx=$((RANDOM % message_count))
-    if [[ $idx -ne $LAST_MESSAGE_IDX ]]; then
-      LAST_MESSAGE_IDX=$idx
-      break
-    fi
-  done
-
-  echo "${messages[$idx]}"
-}
-
-# ------------------------------------------------------------------------------
-# These variables control the spinner's state and the result of executing the
-# sub-process. They are initialized by `start-spinner` and cleaned up by
-# `cleanup-spinner`.
-# ------------------------------------------------------------------------------
-SPINNER_STATE="READY"
-SPINNER_PID=
-SPINNER_EXIT_STATUS=
-
-# ------------------------------------------------------------------------------
-# These variables are used by the spinner to store the temporary files it
-# uses to communicate with the sub-process it is running. They are initialized
-# by `init-spinner` and cleaned up by `cleanup-spinner`.
-# ------------------------------------------------------------------------------
-SPINNER_STDOUT=
-SPINNER_STDERR=
-SPINNER_STOPFILE=
-
-start-spinner() {
-  if [ "$SPINNER_STATE" != "READY" ]; then
-    warn "The spinner is already running! ...or maybe it was never cleaned up properly?"
-    return 1
-  fi
-
-  SPINNER_STOPFILE=$(mktemp)
-  SPINNER_STDOUT=$(mktemp)
-  SPINNER_STDERR=$(mktemp)
-
-  # Run the command in the background, redirecting stdout and stderr
-  ("$@" > "$SPINNER_STDOUT" 2> "$SPINNER_STDERR") &
-  SPINNER_PID="$!"
-
-  # Set the spinner state
-  SPINNER_STATE="RUNNING"
-}
-
-await-spinner() {
-  local gum_exit_status
-
-  # Temporarily disable exit on error
-  set +e
-
-  # Poll for subprocess status
-  while kill -0 "$SPINNER_PID" 2> /dev/null; do
-    gum spin -s dot --title.foreground="#66FF66" --title "$(get-random-polling-message)" -- sleep 3
-    gum_exit_status=$?
-
-    if [ "$gum_exit_status" -ne 0 ]; then
-      kill -TERM "$SPINNER_PID"
-      break
-    fi
-  done
-
-  # Wait for the command to finish and capture its exit status
-  wait "$SPINNER_PID"
-  SPINNER_EXIT_STATUS=$?
-
-  set -e
-}
-
-# ------------------------------------------------------------------------------
-# Deletes the temporary files used by the spinner and restores the original
-# signal handlers.
-# ------------------------------------------------------------------------------
-# shellcheck disable=SC2064
-cleanup-spinner() {
-  if [ "$SPINNER_STATE" == "READY" ]; then
-    return 0
-  fi
-
-  rm -f "$SPINNER_STDOUT" "$SPINNER_STDERR" "$SPINNER_STOPFILE"
-
-  SPINNER_STATE="READY"
-  SPINNER_PID=
-  SPINNER_EXIT_STATUS=
-}
-
-# ------------------------------------------------------------------------------
-# Runs a command in the background, displaying a spinner and whimsical scifi
-# message while the command is running. The spinner is stopped when the command
-# finishes, and the command's stdout and stderr are emitted to the current
-# shell's stderr and stdout.
-# ------------------------------------------------------------------------------
-spinner() {
-  local exit_status
-
-  start-spinner "$@"
-  await-spinner
-
-  # Capture the exit status of the command
-  exit_status="$SPINNER_EXIT_STATUS"
-
-  # Output the command's stdout and stderr
-  cat "$SPINNER_STDOUT"
-  cat "$SPINNER_STDERR" >&2
-
-  # Remove the temporary files and reset the spinner's state
-  cleanup-spinner
-
-  # Return the exit status of the command
-  return $exit_status
-}
-
-# ------------------------------------------------------------------------------
-# Runs the current thread (that means it tells the GPT to process the messages
-# that have been added to the thread so far) and waits for it to complete.
-# Sleeps for 1 second between polls.
-# ------------------------------------------------------------------------------
-# shellcheck disable=SC2317
-run-thread-and-wait() {
-  local result
-  local run_id
-  local status
-
-  run_id=$(run-thread)
-
-  # shellcheck disable=SC2064
-  trap "cancel-run $run_id" TERM
-
-  while true; do
-    status=$(get-run-status "$run_id")
-
-    case "$status" in
-      queued | in_progress)
-        sleep 1
-        continue
-        ;;
-
-      completed)
-        return 0
-        ;;
-
-      cancelling | cancelled)
-        return 1
-        ;;
-
-      *)
-        warn "got unexpected status: not sure what to do"
-        die "$result"
-        ;;
-    esac
-  done
-}
-
-# ------------------------------------------------------------------------------
 # Files and command outputs can be too long to send in a single message, so
 # they are broken up into multiple messages. This function splits the string
 # into chunks based on characters, then prints each chunk sperated by a null
@@ -697,6 +491,8 @@ readfile-for-attachment() {
   local filepath="$1"
   local content
   local retry=true
+  local choice
+  local error_message
 
   while [ "$retry" = true ]; do
     retry=false
@@ -705,8 +501,8 @@ readfile-for-attachment() {
       printf "%s###FILEPATH###%s" "$filepath" "$content"
       return 0
     else
-      local error_message=$content # Capture the error message
-      local choice=$(gum choose --header "Error reading file: $error_message" "Skip this file" "Enter a new file path" "Try again")
+      error_message="$content" # Capture the error message
+      choice=$(gum choose --header "Error reading file: $error_message" "Skip this file" "Enter a new file path" "Try again")
 
       case "$choice" in
         "Skip this file")
@@ -753,12 +549,14 @@ attach-file() {
   # Read the file contents, giving the user an opportunity to handle file read
   # errors.
   file_info=$(readfile-for-attachment "$filepath") || return $?
-  filepath=$(awk -F'###FILEPATH###' '{print $1}' <<< "$file_info")
-  content=$(awk -F'###FILEPATH###' '{print $2}' <<< "$file_info")
+
+  separator="###FILEPATH###"
+  filepath="${file_info%%"$separator"*}"
+  content="${file_info#*"$separator"}"
   content_length=$(wc -m <<< "$content")
 
   if ((content_length > MAX_FILE_SIZE)); then
-    warn "The file content exceeds the maximum allowed size."
+    warn "The file content ($content_length) exceeds the maximum allowed size ($MAX_FILE_SIZE)."
 
     action_truncate="Truncate file to fit the limit"
     action_split="Split the content into multiple messages"
@@ -1139,9 +937,13 @@ print-user-msg() {
 # Called indirectly in print-message-callback
 # shellcheck disable=SC2317
 print-gpt-msg() {
-  local msg="$1"
+  local msg="${1:-}"
+
   gum style --foreground '#66CCFF' --bold "$ASSISTANT_NAME:"
-  gum format -- "$msg"
+
+  if [ -n "$msg" ]; then
+    gum format -- "$msg"
+  fi
 }
 
 # ------------------------------------------------------------------------------
@@ -1167,7 +969,9 @@ print-message-callback() {
 # `list-messages`. See `list-messages` for detail.
 # ------------------------------------------------------------------------------
 print-messages() {
-  list-messages print-message-callback "$@"
+  list-messages print-message-callback >> "$CONVERSATION_TMP"
+  clear
+  cat "$CONVERSATION_TMP"
 }
 
 # ------------------------------------------------------------------------------
@@ -1251,11 +1055,10 @@ chat() {
         '\run')
           info "Requesting a new response to the conversation..."
 
-          if spinner run-thread-and-wait; then
-            if [ "$needs_summary" = true ]; then
-              save-to-chat-history
-              needs_summary=false
-            fi
+          get-response
+          if [ "$needs_summary" = true ]; then
+            save-to-chat-history
+            needs_summary=false
           fi
 
           break
@@ -1273,12 +1076,9 @@ chat() {
           # wait for the thread to run.
           print-messages
 
-          if spinner run-thread-and-wait; then
-            if [ "$needs_summary" = true ]; then
-              save-to-chat-history
-              needs_summary=false
-            fi
-          fi
+          # Stream GPT's output to the terminal. On the next loop, it will
+          # clear the screen and print the updated, formatted conversation.
+          get-response
 
           break
           ;;
@@ -1341,7 +1141,7 @@ summarize-chat() {
   get-completion \
     'gpt-3.5-turbo-16k' \
     'You are a bot that summarizes conversations tersely' \
-    "$(print-messages 6 false)\n\nSummarize the above conversation in 10 words or less"
+    "$(list-messages 6 false)\n\nSummarize the above conversation in 10 words or less"
 }
 
 # ------------------------------------------------------------------------------
@@ -1352,6 +1152,7 @@ new-chat() {
   THREAD_ID=$(start-thread)
   THREAD_LABEL="New chat with $ASSISTANT_NAME"
   MESSAGE_ID=""
+  echo "" > "$CONVERSATION_TMP"
   chat
 }
 
@@ -1504,6 +1305,7 @@ chat-history-menu() {
       THREAD_ID="$(echo "$choice" | sed -E 's/.*id: ([^)]+).*/\1/')"
       THREAD_LABEL="$(echo "$choice" | sed -E 's/^(.*) \(id: [^)]+\)$/\1/')"
       MESSAGE_ID=""
+      echo "" > "$CONVERSATION_TMP"
       chat
     else
       break
@@ -1551,8 +1353,10 @@ main-menu() {
   done
 }
 
-validate-env
+main() {
+  validate-env
+  main-menu
+  exit 0
+}
 
-main-menu
-
-exit 0
+main
