@@ -1045,6 +1045,7 @@ chat() {
           info "Requesting a new response to the conversation..."
 
           get-response
+
           if [ "$needs_summary" = true ]; then
             save-to-chat-history
             needs_summary=false
@@ -1068,6 +1069,11 @@ chat() {
           # Stream GPT's output to the terminal. On the next loop, it will
           # clear the screen and print the updated, formatted conversation.
           get-response
+
+          if [ "$needs_summary" = true ]; then
+            save-to-chat-history
+            needs_summary=false
+          fi
 
           break
           ;;
