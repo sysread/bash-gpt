@@ -154,6 +154,8 @@ modify-assistant() {
   local description="$3"
   local tools=()
   local tool_args=()
+  local tool
+  local result
 
   # `gum choose` returns a space-separated list of selected tools, so we read
   # it into an array that we can turn into multiple --tool arguments to openai.
@@ -165,7 +167,15 @@ modify-assistant() {
   done
 
   # Now include the tool arguments in the openai invocation
-  if ! result=$(openai modify-assistant --assistant "$ASSISTANT_ID" --name "$name" --instructions "$instructions" --description "$description" "${tool_args[@]}" 2>&1); then
+  if ! result=$(
+    openai modify-assistant \
+      --assistant "$ASSISTANT_ID" \
+      --name "$name" \
+      --instructions "$instructions" \
+      --description "$description" \
+      "${tool_args[@]}" \
+      2>&1
+  ); then
     die "$result"
   fi
 
