@@ -857,16 +857,14 @@ handle-parsed-message() {
           text_content=()
         fi
 
-        info "Running command:"
-        info "    $ ${line#EXEC }"
-
         local exec_line="${line#EXEC }"
-
-        info "✓"
-
         local msgs=()
         local msg
+
+        info "Running command:"
+        info "    $ ${line#EXEC }"
         readarray -t msgs < <(attach-command-output "$exec_line")
+        info "✓"
 
         messages+=('```')
 
