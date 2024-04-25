@@ -857,10 +857,18 @@ handle-parsed-message() {
           text_content=()
         fi
 
+        info "Running command:"
+        info "    $ ${line#EXEC }"
+
         local exec_line="${line#EXEC }"
+
+        info "✓"
+
         local msgs=()
         local msg
         readarray -t msgs < <(attach-command-output "$exec_line")
+
+        messages+=('```')
 
         for msg in "${msgs[@]}"; do
           msg=$(base64 --decode <<< "$msg")
@@ -868,6 +876,8 @@ handle-parsed-message() {
             messages+=("$msg")
           fi
         done
+
+        messages+=('```')
         ;;
 
       FILE*)
