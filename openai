@@ -567,6 +567,8 @@ cmd:add-message() {
   thread=$(get-config --thread "$@") || die "add-message: expected --thread"
   content=$(get-config --content "$@") || die "add-message: expected --content"
 
+  [ -z "$content" ] && die "add-message: Content is empty, cannot send."
+
   payload=$(jq -n '{"role": "user"}')
   payload=$(jq --arg x "$content" '. + {"content": $x}' <<< "$payload")
 
