@@ -332,7 +332,7 @@ add-assistant() {
 
   description=$(gum input --prompt 'Enter an optional description: ' --placeholder 'Gene Peetee, the helpful chatbot.')
 
-  tools="$(gum choose --header 'Select any add-on tools you want available to the assistant' --no-limit {none,code_interpreter,retrieval,function})" || true
+  tools="$(gum choose --header 'Select any add-on tools you want available to the assistant' --no-limit {none,code_interpreter,file_search,function})" || true
   tools=$(echo "$tools" | sed '/^none$/d;/^$/d')
 
   ASSISTANT_ID=$(create-assistant "$name" "$instructions" "$description" "$tools")

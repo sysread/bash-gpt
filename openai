@@ -185,7 +185,7 @@ cmd-usage() {
         ;;
 
       'TOOLS[]')
-        collected+=('--tools' 'the name of tools to enable; can be specified multiple times; current options are "code_interpreter", "retrieval", and "function"')
+        collected+=('--tools' 'the name of tools to enable; can be specified multiple times; current options are "code_interpreter", "file_search", and "function"')
         ;;
 
       *)
