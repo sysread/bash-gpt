@@ -125,19 +125,9 @@ create-assistant() {
   local name="$1"
   local instructions="$2"
   local description="$3"
-  local tools=()
-  local tool_args=()
-
-  # gum choose returns a space-separated list of selected tools, so we read it into an array
-  IFS=' ' read -r -a tools <<< "$4"
-
-  # Build the tool arguments
-  for tool in "${tools[@]}"; do
-    [[ -n "$tool" ]] && tool_args+=(--tool "$tool")
-  done
 
   # Now include the tool arguments in the openai invocation
-  if ! result=$(openai create-assistant --name "$name" --instructions "$instructions" --description "$description" "${tool_args[@]}" 2>&1); then
+  if ! result=$(openai create-assistant --name "$name" --instructions "$instructions" --description "$description" 2>&1); then
     die "$result"
   fi
 
@@ -152,19 +142,7 @@ modify-assistant() {
   local name="$1"
   local instructions="$2"
   local description="$3"
-  local tools=()
-  local tool_args=()
-  local tool
   local result
-
-  # `gum choose` returns a space-separated list of selected tools, so we read
-  # it into an array that we can turn into multiple --tool arguments to openai.
-  IFS=' ' read -r -a tools <<< "$4"
-
-  # Build the tool arguments
-  for tool in "${tools[@]}"; do
-    [[ -n "$tool" ]] && tool_args+=(--tool "$tool")
-  done
 
   # Now include the tool arguments in the openai invocation
   if ! result=$(
@@ -173,7 +151,6 @@ modify-assistant() {
       --name "$name" \
       --instructions "$instructions" \
       --description "$description" \
-      "${tool_args[@]}" \
       2>&1
   ); then
     die "$result"
@@ -305,7 +282,6 @@ add-assistant() {
   local name
   local instructions
   local description
-  local tools
 
   name=$(gum input --prompt 'Enter a name for the assistant: ' --placeholder 'G. Peetee') || return 0
 
@@ -332,10 +308,7 @@ add-assistant() {
 
   description=$(gum input --prompt 'Enter an optional description: ' --placeholder 'Gene Peetee, the helpful chatbot.')
 
-  tools="$(gum choose --header 'Select any add-on tools you want available to the assistant' --no-limit {none,code_interpreter,file_search,function})" || true
-  tools=$(echo "$tools" | sed '/^none$/d;/^$/d')
-
-  ASSISTANT_ID=$(create-assistant "$name" "$instructions" "$description" "$tools")
+  ASSISTANT_ID=$(create-assistant "$name" "$instructions" "$description")
   ASSISTANT_NAME="$name"
 
   save-selected-assistant
@@ -351,12 +324,10 @@ edit-assistant() {
   local name
   local instructions
   local description
-  local tools
 
   local new_name
   local new_instructions
   local new_description
-  local new_tools
 
   if ! result=$(openai get-assistant --assistant "$ASSISTANT_ID"); then
     warn "error getting assistant"
@@ -366,7 +337,6 @@ edit-assistant() {
   name=$(jq -r '.name' <<< "$result")
   instructions=$(jq -r '.instructions' <<< "$result")
   description=$(jq -r '.description' <<< "$result")
-  tools=$(jq -r '.tools | map(.type) | join(" ")' <<< "$result")
 
   if ! new_name=$(gum input --prompt 'Enter a new name: ' --value "$name"); then
     return
@@ -380,20 +350,14 @@ edit-assistant() {
     return
   fi
 
-  if ! new_tools=$(gum choose --header 'Update selected tools' --no-limit --selected "$tools" {none,code_interpreter,retrieval,function}); then
-    return
-  fi
-
-  new_tools=$(echo "$new_tools" | sed '/^none$/d;/^$/d')
-
   if [ -z "$new_name" ] || [ -z "$new_instructions" ]; then
     # The user pressed escape on name or instructions, so we skip updating the
-    # description and tools.
+    # description.
     new_name=$name
     new_instructions=$instructions
   fi
 
-  ASSISTANT_ID=$(modify-assistant "$new_name" "$new_instructions" "$new_description" "$new_tools")
+  ASSISTANT_ID=$(modify-assistant "$new_name" "$new_instructions" "$new_description")
   ASSISTANT_NAME="$new_name"
 
   save-selected-assistant

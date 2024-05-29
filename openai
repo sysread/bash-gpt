@@ -39,25 +39,12 @@ usage: $PROGRAM [OPTIONS]
 
 # Commands:
 
-## Files
-  * list-files            list files
-  * get-file              get info about a file
-  * upload-file           upload a file
-  * retrieve-file         retrieve a file's contents
-  * delete-file           delete a file
-
 ## Assistant
   * create-assistant      create a new assistant
   * modify-assistant      modify an existing assistant
   * list-assistants       list assistants
   * get-assistant         get info about an assistant
   * delete-assistant      delete an assistant
-
-## Assistant files
-  * add-assistant-file    add a file to an assistant
-  * list-assistant-files  list files in an assistant
-  * get-assistant-file    get info about a file in an assistant
-  * delete-assistant-file delete a file from an assistant
 
 ## Threads
   * start-thread          start a new thread
@@ -77,10 +64,6 @@ usage: $PROGRAM [OPTIONS]
   * get-run               get info about a thread's run
   * modify-run            modify a thread's run
   * cancel-run            cancel a thread's run
-
-## Run steps
-  * list-steps            list steps for a thread's run
-  * get-step              get info about a thread's run step
 
 ## Completions
   * get-completion        generate a chat completion (non-streaming)
@@ -126,6 +109,7 @@ cmd-usage() {
         ;;
 
       MODEL)
+        # shellcheck disable=SC2016
         collected+=('--model' 'the model to use (default: $OPENAI_MODEL)')
         ;;
 
@@ -145,10 +129,6 @@ cmd-usage() {
         collected+=('--run' 'the id of the run (required)')
         ;;
 
-      STEP)
-        collected+=('--step' 'the id of the step (required)')
-        ;;
-
       MESSAGE)
         collected+=('--message' 'the id of the message (required)')
         ;;
@@ -165,28 +145,12 @@ cmd-usage() {
         collected+=('--description' 'the description of the assistant')
         ;;
 
-      FILE)
-        collected+=('--file' 'the id of the file (required)')
-        ;;
-
-      FILEPATH)
-        collected+=('--file' 'the path to the file (required)')
-        ;;
-
       CONTENT)
         collected+=('--content' 'the message to add (required)')
         ;;
 
-      'FILE[]')
-        collected+=('--file' 'the id of files to include; can be specified multiple times')
-        ;;
-
       'META[]')
         collected+=('--meta' 'the metadata to include; up to 16 key/value pairs are permitted (e.g. --meta key1=value1 --meta key2=value2)')
-        ;;
-
-      'TOOLS[]')
-        collected+=('--tools' 'the name of tools to enable; can be specified multiple times; current options are "code_interpreter", "file_search", and "function"')
         ;;
 
       *)
@@ -422,156 +386,21 @@ build-paginated-uri() {
 # ------------------------------------------------------------------------------
 # Commands
 # ------------------------------------------------------------------------------
-cmd:list-files() {
-  if wants-help "$@"; then
-    cmd-usage 'list-files'
-  fi
-
-  request "$API_BASE_URI/files"
-}
-
-cmd:get-file() {
-  local file_id
-
-  if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'get-file' 'FILE'
-  fi
-
-  file_id=$(get-config --file "$@") || die "get-file: expected --file"
-
-  request "$API_BASE_URI/files/$file_id"
-}
-
-cmd:upload-file() {
-  local file
-  local purpose
-  local mime
-  local temp_file=""
-  local supported_types
-  local is_supported
-  local file_name
-
-  if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'upload-file' 'FILEPATH' --purpose 'the purpose of the file (default: assistants; allowed: fine-tune|assistants)'
-  fi
-
-  file=$(get-config --file "$@") || die "upload-file: expected --file"
-  purpose=$(get-config --purpose "$@") || true
-
-  file_name=$(basename "$file")
-  mime=$(file --mime-type -b "$file")
-
-  if [ ! -f "$file" ]; then
-    die "upload-file: file does not exist - $file"
-  fi
-
-  if [ -z "$purpose" ]; then
-    purpose="assistants"
-  fi
-
-  # List of supported mime types
-  supported_types=(
-    "application/json"
-    "application/msword"
-    "application/pdf"
-    "application/vnd.ms-excel"
-    "application/vnd.ms-powerpoint"
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    "application/x-tar"
-    "application/xml"
-    "application/zip"
-    "image/gif"
-    "image/jpeg"
-    "image/png"
-    "text/css"
-    "text/csv"
-    "text/html"
-    "text/javascript"
-    "text/markdown"
-    "text/plain"
-    "text/x-c++src"
-    "text/x-csrc"
-    "text/x-java-source"
-    "text/x-php"
-    "text/x-python-script"
-    "text/x-ruby"
-    "text/x-tex"
-  )
-
-  # Check if mime type is supported
-  is_supported=false
-  for supported_mime in "${supported_types[@]}"; do
-    if [[ $mime == "$supported_mime" ]]; then
-      is_supported=true
-      break
-    fi
-  done
-
-  # Fudge it as a test file if possible
-  if [[ $is_supported == false ]]; then
-    warn "$mime is not a supported mime type, attempting to upload as text/plain"
-    temp_file="/tmp/${file_name}.txt"
-    cp "$file" "$temp_file"
-    file="$temp_file"
-    mime="text/plain"
-  fi
-
-  request "$API_BASE_URI/files" \
-    -H 'Content-Type: multipart/form-data' \
-    -F purpose="$purpose" \
-    -F file="@$file"
-
-  # Clean up temporary file if created
-  if [ -n "$temp_file" ]; then
-    rm "$temp_file"
-  fi
-}
-
-cmd:delete-file() {
-  local file
-
-  if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'delete-file' 'FILE'
-  fi
-
-  file=$(get-config --file "$@") || die "delete-file: expected --file"
-
-  request "$API_BASE_URI/files/$file" -X DELETE
-}
-
-cmd:retrieve-file() {
-  local file
-
-  if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'retrieve-file' 'FILE'
-  fi
-
-  file=$(get-config --file "$@") || die "retrieve-file: expected --file"
-
-  request "$API_BASE_URI/files/$file/content"
-}
-
 cmd:create-assistant() {
   local name
   local instructions
   local description
   local model
   local payload
-  local files=()
-  local tools=()
 
   if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'create-assistant' 'NAME' 'DESCRIPTION' 'INSTRUCTIONS' 'MODEL' 'FILE[]' 'META[]' 'TOOLS[]'
+    cmd-usage 'create-assistant' 'NAME' 'DESCRIPTION' 'INSTRUCTIONS' 'MODEL' 'META[]'
   fi
 
   name=$(get-config --name "$@") || die "create-assistant: expected --name"
   instructions=$(get-config --instructions "$@") || die "create-assistant: expected --instructions"
   description=$(get-config --description "$@") || true
   model=$(get-config --model "$@") || true
-  get-config-multi --tools tools "$@" || true
-  get-config-multi --file files "$@" || true
 
   if [ -z "$model" ]; then
     model="$OPENAI_MODEL"
@@ -587,14 +416,6 @@ cmd:create-assistant() {
     payload=$(jq --arg x "$description" '. + {"description": $x}' <<< "$payload")
   fi
 
-  if [[ ${#files[@]} -gt 0 ]]; then
-    payload=$(jq --argjson x "$(printf '%s\n' "${files[@]}" | jq -R . | jq -s .)" '. + {file_ids: $x}' <<< "$payload")
-  fi
-
-  if [[ ${#tools[@]} -gt 0 ]]; then
-    payload=$(jq --argjson tools "$(printf '%s\n' "${tools[@]}" | jq -R '{type: .}' | jq -s .)" '. + {tools: $tools}' <<< "$payload")
-  fi
-
   request "$API_BASE_URI/assistants" -d "$payload"
 }
 
@@ -605,11 +426,9 @@ cmd:modify-assistant() {
   local description
   local model
   local payload
-  local files=()
-  local tools=()
 
   if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'modify-assistant' 'ASSISTANT' 'NAME' 'DESCRIPTION' 'INSTRUCTIONS' 'MODEL' 'TOOLS[]' 'FILE[]' 'META[]'
+    cmd-usage 'modify-assistant' 'ASSISTANT' 'NAME' 'DESCRIPTION' 'INSTRUCTIONS' 'MODEL' 'META[]'
   fi
 
   assistant=$(get-config --assistant "$@") || die "modify-assistant: expected --assistant"
@@ -617,8 +436,6 @@ cmd:modify-assistant() {
   instructions=$(get-config --instructions "$@") || true
   description=$(get-config --description "$@") || true
   model=$(get-config --model "$@") || true
-  get-config-multi --tools tools "$@" || true
-  get-config-multi --file files "$@" || true
 
   if [ -z "$model" ]; then
     model="$OPENAI_MODEL"
@@ -641,14 +458,6 @@ cmd:modify-assistant() {
 
   if [ -n "$description" ]; then
     payload=$(jq --arg x "$description" '. + {"description": $x}' <<< "$payload")
-  fi
-
-  if [[ ${#files[@]} -gt 0 ]]; then
-    payload=$(jq --argjson x "$(printf '%s\n' "${files[@]}" | jq -R . | jq -s .)" '. + {file_ids: $x}' <<< "$payload")
-  fi
-
-  if [[ ${#tools[@]} -gt 0 ]]; then
-    payload=$(jq --argjson tools "$(printf '%s\n' "${tools[@]}" | jq -R '{type: .}' | jq -s .)" '. + {tools: $tools}' <<< "$payload")
   fi
 
   request "$API_BASE_URI/assistants/$assistant" -d "$payload"
@@ -691,71 +500,6 @@ cmd:delete-assistant() {
 
   assistant=$(get-config --assistant "$@") || die "delete-assistant: expected --assistant"
   request "$API_BASE_URI/assistants/$assistant" -X DELETE
-}
-
-cmd:add-assistant-file() {
-  local assistant
-  local file
-  local payload
-
-  if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'add-assistant-file' 'ASSISTANT' 'FILE'
-  fi
-
-  assistant=$(get-config --assistant "$@") || die "add-assistant-file: expected --assistant"
-  file=$(get-config --file "$@") || die "add-assistant-file: expected --file"
-
-  payload=$(jq -n '{}')
-  payload=$(jq --arg x "$file" '. + {"file_id": $x}' <<< "$payload")
-
-  request "$API_BASE_URI/assistants/$assistant/files" -d "$payload"
-}
-
-cmd:get-assistant-file() {
-  local assistant
-  local file
-
-  if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'get-assistant-file' 'ASSISTANT' 'FILE'
-  fi
-
-  assistant=$(get-config --assistant "$@") || die "get-assistant-file: expected --assistant"
-  file=$(get-config --file "$@") || die "get-assistant-file: expected --file"
-
-  request "$API_BASE_URI/assistants/$assistant/files/$file"
-}
-
-cmd:delete-assistant-file() {
-  local assistant
-  local file
-
-  if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'delete-assistant-file' 'ASSISTANT' 'FILE'
-  fi
-
-  assistant=$(get-config --assistant "$@") || die "get-assistant-file: expected --assistant"
-  file=$(get-config --file "$@") || die "get-assistant-file: expected --file"
-
-  request "$API_BASE_URI/assistants/$assistant/files/$file" -X DELETE
-}
-
-cmd:list-assistant-files() {
-  local assistant
-  local order
-  local limit
-  local after
-  local before
-  local query
-  local endpoint
-
-  if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'list-assistant-files' 'PAGINATION' 'ASSISTANT'
-  fi
-
-  assistant=$(get-config --assistant "$@") || die "list-assistant-files: expected --assistant"
-  endpoint=$(build-paginated-uri "$API_BASE_URI/assistants/$assistant/files" "$@")
-
-  request "$endpoint"
 }
 
 cmd:start-thread() {
@@ -816,22 +560,15 @@ cmd:add-message() {
   local content
   local payload
 
-  declare -a files
-
   if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'add-message' 'THREAD' 'FILE[]' 'CONTENT'
+    cmd-usage 'add-message' 'THREAD' 'CONTENT'
   fi
 
   thread=$(get-config --thread "$@") || die "add-message: expected --thread"
   content=$(get-config --content "$@") || die "add-message: expected --content"
-  get-config-multi --file files "$@" || true
 
   payload=$(jq -n '{"role": "user"}')
   payload=$(jq --arg x "$content" '. + {"content": $x}' <<< "$payload")
-
-  if [[ ${#files[@]} -gt 0 ]]; then
-    payload=$(jq --argjson x "$(printf '%s\n' "${files[@]}" | jq -R . | jq -s .)" '. + {file_ids: $x}' <<< "$payload")
-  fi
 
   request "$API_BASE_URI/threads/$thread/messages" -d "$payload"
 }
@@ -960,36 +697,6 @@ cmd:cancel-run() {
   run=$(get-config --run "$@") || die "cancel-run: expected --run"
 
   request "$API_BASE_URI/threads/$thread/runs/$run/cancel" -X POST
-}
-
-cmd:list-steps() {
-  local thread
-  local run
-
-  if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'list-steps' 'THREAD' 'RUN'
-  fi
-
-  thread=$(get-config --thread "$@") || die "list-steps: expected --thread"
-  run=$(get-config --run "$@") || die "list-steps: expected --run"
-
-  request "$API_BASE_URI/threads/$thread/runs/$run/steps"
-}
-
-cmd:get-step() {
-  local thread
-  local run
-  local step
-
-  if wants-help "$@" || [ -z "$*" ]; then
-    cmd-usage 'get-step' 'THREAD' 'RUN' 'STEP'
-  fi
-
-  thread=$(get-config --thread "$@") || die "cancel-run: expected --thread"
-  run=$(get-config --run "$@") || die "cancel-run: expected --run"
-  step=$(get-config --step "$@") || die "cancel-run: expected --step"
-
-  request "$API_BASE_URI/threads/$thread/runs/$run/steps/$step"
 }
 
 cmd:get-completion() {
