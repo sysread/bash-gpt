@@ -125,19 +125,17 @@ create-assistant() {
   local name="$1"
   local instructions="$2"
   local description="$3"
-  local tools=()
-  local tool_args=()
-
-  # gum choose returns a space-separated list of selected tools, so we read it into an array
-  IFS=' ' read -r -a tools <<< "$4"
-
-  # Build the tool arguments
-  for tool in "${tools[@]}"; do
-    [[ -n "$tool" ]] && tool_args+=(--tool "$tool")
-  done
+  local model="$4"
 
   # Now include the tool arguments in the openai invocation
-  if ! result=$(openai create-assistant --name "$name" --instructions "$instructions" --description "$description" "${tool_args[@]}" 2>&1); then
+  if ! result=$(
+    openai create-assistant \
+      --name "$name" \
+      --instructions "$instructions" \
+      --description "$description" \
+      --model "$model" \
+      2>&1
+  ); then
     die "$result"
   fi
 
@@ -152,19 +150,8 @@ modify-assistant() {
   local name="$1"
   local instructions="$2"
   local description="$3"
-  local tools=()
-  local tool_args=()
-  local tool
+  local model="$4"
   local result
-
-  # `gum choose` returns a space-separated list of selected tools, so we read
-  # it into an array that we can turn into multiple --tool arguments to openai.
-  IFS=' ' read -r -a tools <<< "$4"
-
-  # Build the tool arguments
-  for tool in "${tools[@]}"; do
-    [[ -n "$tool" ]] && tool_args+=(--tool "$tool")
-  done
 
   # Now include the tool arguments in the openai invocation
   if ! result=$(
@@ -173,7 +160,7 @@ modify-assistant() {
       --name "$name" \
       --instructions "$instructions" \
       --description "$description" \
-      "${tool_args[@]}" \
+      --model "$model" \
       2>&1
   ); then
     die "$result"
@@ -297,6 +284,24 @@ list-messages() {
 # ------------------------------------------------------------------------------
 # Feature: ASSISTANTS
 # ------------------------------------------------------------------------------
+list-models() {
+  curl -s "https://api.openai.com/v1/models" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    | jq -r '.data.[].id' \
+    | grep gpt \
+    | sort
+}
+
+select-model() {
+  local model="${1:-"$OPENAI_MODEL"}"
+  local models=()
+
+  while IFS=':' read -r name; do
+    models+=("$name")
+  done < <(list-models)
+
+  gum choose --header "Select a model" --selected "$model" "${models[@]}" || return 0
+}
 
 # ------------------------------------------------------------------------------
 # Creates a new custom GPT model and emits its id.
@@ -305,7 +310,7 @@ add-assistant() {
   local name
   local instructions
   local description
-  local tools
+  local model
 
   name=$(gum input --prompt 'Enter a name for the assistant: ' --placeholder 'G. Peetee') || return 0
 
@@ -332,10 +337,10 @@ add-assistant() {
 
   description=$(gum input --prompt 'Enter an optional description: ' --placeholder 'Gene Peetee, the helpful chatbot.')
 
-  tools="$(gum choose --header 'Select any add-on tools you want available to the assistant' --no-limit {none,code_interpreter,retrieval,function})" || true
-  tools=$(echo "$tools" | sed '/^none$/d;/^$/d')
+  # shellcheck disable=SC2119
+  model=$(select-model)
 
-  ASSISTANT_ID=$(create-assistant "$name" "$instructions" "$description" "$tools")
+  ASSISTANT_ID=$(create-assistant "$name" "$instructions" "$description" "$model")
   ASSISTANT_NAME="$name"
 
   save-selected-assistant
@@ -351,12 +356,12 @@ edit-assistant() {
   local name
   local instructions
   local description
-  local tools
+  local model
 
   local new_name
   local new_instructions
   local new_description
-  local new_tools
+  local new_model
 
   if ! result=$(openai get-assistant --assistant "$ASSISTANT_ID"); then
     warn "error getting assistant"
@@ -366,7 +371,7 @@ edit-assistant() {
   name=$(jq -r '.name' <<< "$result")
   instructions=$(jq -r '.instructions' <<< "$result")
   description=$(jq -r '.description' <<< "$result")
-  tools=$(jq -r '.tools | map(.type) | join(" ")' <<< "$result")
+  model=$(jq -r '.model' <<< "$result")
 
   if ! new_name=$(gum input --prompt 'Enter a new name: ' --value "$name"); then
     return
@@ -380,20 +385,18 @@ edit-assistant() {
     return
   fi
 
-  if ! new_tools=$(gum choose --header 'Update selected tools' --no-limit --selected "$tools" {none,code_interpreter,retrieval,function}); then
+  if ! new_model=$(select-model "$model"); then
     return
   fi
 
-  new_tools=$(echo "$new_tools" | sed '/^none$/d;/^$/d')
-
   if [ -z "$new_name" ] || [ -z "$new_instructions" ]; then
     # The user pressed escape on name or instructions, so we skip updating the
-    # description and tools.
+    # description.
     new_name=$name
     new_instructions=$instructions
   fi
 
-  ASSISTANT_ID=$(modify-assistant "$new_name" "$new_instructions" "$new_description" "$new_tools")
+  ASSISTANT_ID=$(modify-assistant "$new_name" "$new_instructions" "$new_description" "$new_model")
   ASSISTANT_NAME="$new_name"
 
   save-selected-assistant
@@ -588,8 +591,6 @@ attach-file() {
           # shellcheck disable=SC2016
           msg=$(printf 'Attached file content: `%s` (part %s)\n```\n%s\n```\n' "$filepath" "$part_no" "$chunk")
           echo -e "$msg" | base64
-
-          sleep 1 # Adding a short delay to avoid rapid message sending
         done < <(split-into-chunks "$MAX_FILE_SIZE" "$content")
 
         return 0
@@ -646,14 +647,14 @@ attach-command-output() {
       # shellcheck disable=SC2016
       msg=$(printf 'Command `%s` output continued (part %s):\n```\n%s\n```' "$command" "$part_no" "$chunk")
       echo -e "$msg" | base64
-
-      sleep 1 # Adding a short delay to avoid rapid message sending
     done < <(split-into-chunks "$MAX_MSG_SIZE" "$command_output")
-  else
-    # shellcheck disable=SC2016
-    msg=$(printf 'Command `%s` output:\n```\n%s\n```' "$command" "$command_output")
-    echo -e "$msg" | base64
+
+    return 0
   fi
+
+  # shellcheck disable=SC2016
+  msg=$(printf 'Command `%s` output:\n```\n%s\n```' "$command" "$command_output")
+  echo -e "$msg" | base64
 }
 
 # ------------------------------------------------------------------------------
@@ -699,11 +700,13 @@ attach-web-content() {
 
       sleep 1 # Adding a short delay to avoid rapid message sending
     done < <(split-into-chunks "$MAX_MSG_SIZE" "$content")
-  else
-    # shellcheck disable=SC2016
-    msg=$(printf 'Attached web content: `%s`\n```\n%s\n```\n' "$url" "$content")
-    echo -e "$msg" | base64
+
+    return 0
   fi
+
+  # shellcheck disable=SC2016
+  msg=$(printf 'Attached web content: `%s`\n```\n%s\n```\n' "$url" "$content")
+  echo -e "$msg" | base64
 }
 
 # ------------------------------------------------------------------------------
@@ -866,16 +869,12 @@ handle-parsed-message() {
         readarray -t msgs < <(attach-command-output "$exec_line")
         info "✓"
 
-        messages+=('```')
-
         for msg in "${msgs[@]}"; do
           msg=$(base64 --decode <<< "$msg")
           if [ -n "$msg" ]; then
             messages+=("$msg")
           fi
         done
-
-        messages+=('```')
         ;;
 
       FILE*)
