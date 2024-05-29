@@ -591,8 +591,6 @@ attach-file() {
           # shellcheck disable=SC2016
           msg=$(printf 'Attached file content: `%s` (part %s)\n```\n%s\n```\n' "$filepath" "$part_no" "$chunk")
           echo -e "$msg" | base64
-
-          sleep 1 # Adding a short delay to avoid rapid message sending
         done < <(split-into-chunks "$MAX_FILE_SIZE" "$content")
 
         return 0
@@ -649,14 +647,14 @@ attach-command-output() {
       # shellcheck disable=SC2016
       msg=$(printf 'Command `%s` output continued (part %s):\n```\n%s\n```' "$command" "$part_no" "$chunk")
       echo -e "$msg" | base64
-
-      sleep 1 # Adding a short delay to avoid rapid message sending
     done < <(split-into-chunks "$MAX_MSG_SIZE" "$command_output")
-  else
-    # shellcheck disable=SC2016
-    msg=$(printf 'Command `%s` output:\n```\n%s\n```' "$command" "$command_output")
-    echo -e "$msg" | base64
+
+    return 0
   fi
+
+  # shellcheck disable=SC2016
+  msg=$(printf 'Command `%s` output:\n```\n%s\n```' "$command" "$command_output")
+  echo -e "$msg" | base64
 }
 
 # ------------------------------------------------------------------------------
@@ -702,11 +700,13 @@ attach-web-content() {
 
       sleep 1 # Adding a short delay to avoid rapid message sending
     done < <(split-into-chunks "$MAX_MSG_SIZE" "$content")
-  else
-    # shellcheck disable=SC2016
-    msg=$(printf 'Attached web content: `%s`\n```\n%s\n```\n' "$url" "$content")
-    echo -e "$msg" | base64
+
+    return 0
   fi
+
+  # shellcheck disable=SC2016
+  msg=$(printf 'Attached web content: `%s`\n```\n%s\n```\n' "$url" "$content")
+  echo -e "$msg" | base64
 }
 
 # ------------------------------------------------------------------------------
@@ -869,16 +869,12 @@ handle-parsed-message() {
         readarray -t msgs < <(attach-command-output "$exec_line")
         info "✓"
 
-        messages+=('```')
-
         for msg in "${msgs[@]}"; do
           msg=$(base64 --decode <<< "$msg")
           if [ -n "$msg" ]; then
             messages+=("$msg")
           fi
         done
-
-        messages+=('```')
         ;;
 
       FILE*)
