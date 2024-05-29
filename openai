@@ -343,8 +343,8 @@ request() {
 
 stream-request() {
   local args=("$@")
-  local response
-  local event
+  local response=""
+  local event=""
 
   curl -sN \
     "${args[@]}" \
@@ -424,7 +424,7 @@ cmd:list-files() {
     cmd-usage 'list-files'
   fi
 
-  request https://api.openai.com/v1/files
+  request "https://api.openai.com/v1/files"
 }
 
 cmd:get-file() {
