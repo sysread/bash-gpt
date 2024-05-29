@@ -9,7 +9,8 @@ PROGRAM="${0##*/}"
 NOTTY=false
 
 OPENAI_MODEL="${OPENAI_MODEL:-gpt-3.5-turbo-16k}"
-API_BASE_URI="https://api.openai.com/v2"
+API_BASE_URI="https://api.openai.com/v1"
+API_VERSION_HEADER="OpenAI-Beta: assistants=v2"
 
 if [ -t 1 ]; then
   # If stdout is a terminal, use a dark theme by default
@@ -331,7 +332,7 @@ request() {
       "${args[@]}" \
       -H "Authorization: Bearer $OPENAI_API_KEY" \
       -H "Content-Type: application/json" \
-      -H "OpenAI-Beta: assistants=v2"
+      -H "$API_VERSION_HEADER"
   ) || die "API connection error"
 
   response-ok "$response"
