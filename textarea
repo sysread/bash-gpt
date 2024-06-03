@@ -1,0 +1,399 @@
+#!/usr/bin/env perl
+
+#-------------------------------------------------------------------------------
+# TODO
+#   - display editable buffer at current cursor position
+#   - what happens when the line content exceeds $WIDTH?
+#   - scrolling or somehow dealing with the buffer when it exceeds $HEIGHT lines
+#-------------------------------------------------------------------------------
+
+use strict;
+use warnings;
+
+use Term::ReadKey qw(ReadKey ReadMode GetTerminalSize);
+use List::Util qw(min max);
+
+#-------------------------------------------------------------------------------
+# Globals
+#-------------------------------------------------------------------------------
+our $DEBUG     = 1;
+
+our $EOF       = \("EOF");
+our $BACKSPACE = \("BACKSPACE");
+our $UP        = \("UP");
+our $DOWN      = \("DOWN");
+our $LEFT      = \("LEFT");
+our $RIGHT     = \("RIGHT");
+our $NEWLINE   = \("NEWLINE");
+our $ESCAPE    = \("ESCAPE");
+
+our $BUFFER    = '';
+our $INDEX     = 0;
+our $COL       = 0;
+our $ROW       = 0;
+
+our ($WIDTH, $HEIGHT) = GetTerminalSize;
+
+# Auto-flush STDOUT
+our $| = 1;
+
+#-------------------------------------------------------------------------------
+# Debug
+#-------------------------------------------------------------------------------
+my $log;
+
+if ($DEBUG) {
+  open $log, '>', 'debug.log' or die $!;
+  $log->autoflush(1);
+
+  print $log qq{
+--------------------------------------------------------------------------------
+> Terminal size: $WIDTH x $HEIGHT
+--------------------------------------------------------------------------------
+};
+
+  END{ close $log }
+}
+
+sub debug_msg {
+  return unless $DEBUG;
+
+  my $msg = shift;
+
+  if (defined $msg) {
+    print $log "> $msg\n";
+  } else {
+    print $log "\n";
+  }
+}
+
+sub debug_pos {
+  my $len = length $BUFFER;
+  debug_msg "Index: $INDEX | Row: $ROW | Col: $COL | BufferLen: $len";
+  debug_msg "Buffer: <<<\n$BUFFER\n>>>";
+  debug_msg;
+}
+
+#-------------------------------------------------------------------------------
+# Functions
+#-------------------------------------------------------------------------------
+sub clamp {
+  my ($min, $max, $val) = @_;
+  return min($max, max($min, $val));
+}
+
+sub read_key {
+  my $key = ReadKey 0;
+
+  # Check for EOF
+  return $EOF unless defined $key;
+
+  my $ascii = ord $key;
+
+  # Check for EOF (Ctrl-D)
+  return $EOF if defined $key && $ascii == 4;
+
+  # Check for Backspace
+  return $BACKSPACE if $ascii == 8 || $ascii == 127;
+
+  # Check for newline (Enter)
+  return $NEWLINE if $key eq "\n";
+
+  # Check for escape sequences (arrow keys)
+  if ($key eq "\e") {
+    # An escape sequence (that isn't the user hitting the escape key) will have
+    # another key immediately following the escape character, and should be
+    # immediately available. We can use a fractional read timeout to check for
+    # this. If there is no other character immediately available, we can assume
+    # the user just hit the escape key.
+    my $next_key = ReadKey(0.1);
+
+    if (defined $next_key && $next_key eq '[') {
+      my $arrow_key = ReadKey(0);
+
+      if (defined $arrow_key) {
+        return $UP    if $arrow_key eq 'A';
+        return $DOWN  if $arrow_key eq 'B';
+        return $RIGHT if $arrow_key eq 'C';
+        return $LEFT  if $arrow_key eq 'D';
+      }
+    }
+    else {
+      return $ESCAPE;
+    }
+  }
+
+  # Return the key itself if it's not a special key
+  return $key;
+}
+
+# Retrieve the index in the overall buffer at the beginning of the current row
+sub start_index_of_row {
+  my $idx  = 0;
+  my $line = 0;
+  my $max  = length $BUFFER;
+
+  if ($ROW == 0) {
+    return 0;
+  }
+
+  # Walk the buffer until we reach the desired row
+  while ($line < $ROW && $idx < $max) {
+    # Reached the end of a line
+    if (substr($BUFFER, $idx, 1) eq "\n") {
+      ++$line;
+    }
+
+    ++$idx;
+  }
+
+  return $idx;
+}
+
+sub last_col_in_current_line {
+  my $idx = start_index_of_row;
+  my $col = 0;
+
+  # Walk through the buffer, starting from index $idx, until we reach
+  # the end of the line, identified by either a newline (\n) or the end
+  # of the buffer itself.
+  while (substr($BUFFER, $idx, 1) ne "\n" && $idx < length $BUFFER) {
+    ++$col;
+    ++$idx;
+  }
+
+  return clamp(0, $WIDTH - 1, $col - 1);
+}
+
+sub num_rows_in_buffer {
+  my $rows = 1;
+
+  for (my $i = 0; $i < length $BUFFER; ++$i) {
+    if (substr($BUFFER, $i, 1) eq "\n") {
+      ++$rows;
+    }
+  }
+
+  return $rows;
+}
+
+sub update_position_from_index {
+  my $idx  = 0;
+  my $line = 0;
+
+  while ($idx < $INDEX) {
+    if (substr($BUFFER, $idx, 1) eq "\n") {
+      ++$line;
+    }
+
+    ++$idx;
+  }
+
+  $ROW = $line;
+  $COL = $INDEX - start_index_of_row;
+}
+
+sub move_cursor_position {
+  my ($row, $col) = @_;
+  ++$row;
+  ++$col;
+  print "\e[${row};${col}H";
+}
+
+sub clear_screen {
+  print "\e[2J";
+}
+
+sub redraw {
+  # Clear the screen
+  clear_screen;
+
+  # Move the cursor to the top-left corner and print the buffer
+  move_cursor_position(0, 0);
+  print "$BUFFER\n";
+
+  # Restore the cursor position
+  move_cursor_position($ROW, $COL);
+
+  debug_pos;
+}
+
+sub up {
+  # Already at the top of the buffer
+  if ($ROW == 0) {
+    return;
+  }
+
+  # Move up to the previous line
+  --$ROW;
+
+  # If the current line is shorter than the previous one, adjust the column
+  my $last_col = last_col_in_current_line;
+
+  if ($last_col < $COL) {
+    $COL = $last_col;
+    $INDEX = start_index_of_row + $COL;
+  } else {
+    $INDEX -= $COL + 1;  # Move the index to the end of the previous line
+    $COL = last_col_in_current_line + 1;  # Adjust for insertion point
+  }
+}
+
+sub down {
+  my $num_rows = num_rows_in_buffer;
+  my $last_index = $num_rows - 1;
+
+  # Already at the bottom of the buffer
+  if ($ROW == $last_index) {
+    return;
+  }
+
+  # Move down to the next line
+  ++$ROW;
+
+  # If the current line is shorter than the next one, adjust the column
+  my $last_col = last_col_in_current_line;
+
+  if ($last_col < $COL) {
+    $COL = $last_col;
+    $INDEX = start_index_of_row + $COL;
+  }
+}
+
+sub left {
+  # Reached the beginning of the buffer
+  if ($INDEX == 0) {
+    return;
+  }
+
+  # Reached the beginning of the line
+  if ($COL == 0) {
+    --$ROW;
+
+    $COL = last_col_in_current_line + 1;
+
+    my $start_index = start_index_of_row;
+    $INDEX = $start_index + $COL;
+
+    return;
+  }
+
+  --$INDEX;
+  --$COL;
+}
+
+sub right {
+  # Reached the end of the buffer
+  if ($INDEX == length $BUFFER) {
+    return;
+  }
+
+  my $last_col = last_col_in_current_line;
+
+  # Reached the end of the line
+  if ($COL >= $last_col) {
+    my $last_char_in_row = substr($BUFFER, $INDEX, 1);
+
+    if ($last_char_in_row eq "\n") {
+      ++$ROW;
+      $COL = 0;
+      $INDEX = start_index_of_row;
+      return;
+    }
+  }
+
+  ++$INDEX;
+  ++$COL;
+}
+
+sub newline {
+  # Insert a newline at the current index
+  substr($BUFFER, $INDEX, 0, "\n");
+  ++$INDEX;
+  ++$ROW;
+  $COL = 0;
+
+  # Move the cursor to the next line
+  $INDEX = start_index_of_row;
+}
+
+sub backspace {
+  if ($INDEX > 0) {
+    substr($BUFFER, $INDEX - 1, 1, '');
+    --$INDEX;
+    update_position_from_index;
+  }
+}
+
+#-------------------------------------------------------------------------------
+# Main
+#-------------------------------------------------------------------------------
+ReadMode 'cbreak';
+END{ ReadMode 'restore' };
+
+while (1) {
+  redraw;
+
+  my $key = read_key;
+  debug_msg "KEY: $key";
+
+  if ($key eq $EOF) {
+    last;
+  }
+
+  if ($key eq $ESCAPE) {
+    exit 1;
+  }
+
+  if ($key eq $NEWLINE) {
+    debug_msg('NEWLINE');
+    newline;
+    next;
+  }
+
+  # backspace
+  if ($key eq $BACKSPACE) {
+    debug_msg('BACKSPACE');
+    backspace;
+    next;
+  }
+
+  # arrow keys
+  if ($key eq $UP) {
+    debug_msg('UP');
+    up;
+    next;
+  }
+
+  if ($key eq $DOWN) {
+    debug_msg('DOWN');
+    down;
+    next;
+  }
+
+  if ($key eq $LEFT) {
+    debug_msg('LEFT');
+    left;
+    next;
+  }
+
+  if ($key eq $RIGHT) {
+    debug_msg('RIGHT');
+    right;
+    next;
+  }
+
+  substr($BUFFER, $INDEX, 0, $key);
+  ++$INDEX;
+  ++$COL;
+
+  # Wrap around to the next line if we reached the end of the current one
+  if ($COL == $WIDTH) {
+    ++$ROW;
+    $COL = 0;
+  }
+}
+
+clear_screen;
+move_cursor_position(0, 0);
+print "$BUFFER\n";
