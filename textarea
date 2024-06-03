@@ -2,20 +2,22 @@
 
 #-------------------------------------------------------------------------------
 # TODO
-#   - display editable buffer at current cursor position
 #   - what happens when the line content exceeds $WIDTH?
 #   - scrolling or somehow dealing with the buffer when it exceeds $HEIGHT lines
+#   - what if the terminal is resized?
 #-------------------------------------------------------------------------------
 
 use strict;
 use warnings;
 
-use Term::ReadKey qw(ReadKey ReadMode GetTerminalSize);
 use List::Util qw(min max);
+use Term::ReadKey qw(ReadKey ReadMode GetTerminalSize);
 
 #-------------------------------------------------------------------------------
 # Globals
 #-------------------------------------------------------------------------------
+our $|         = 1;  # auto-flush STDOUT
+
 our $DEBUG     = 1;
 
 our $EOF       = \("EOF");
@@ -34,8 +36,13 @@ our $ROW       = 0;
 
 our ($WIDTH, $HEIGHT) = GetTerminalSize;
 
-# Auto-flush STDOUT
-our $| = 1;
+# Set the terminal to cbreak mode, then restore it to normal mode when the
+# program exits. This must happen before get_cursor_position() is called.
+ReadMode 'cbreak';
+END{ ReadMode 'normal' };
+
+# Capture the initial cursor position
+our ($START_ROW, $START_COL) = get_cursor_position();
 
 #-------------------------------------------------------------------------------
 # Debug
@@ -49,6 +56,7 @@ if ($DEBUG) {
   print $log qq{
 --------------------------------------------------------------------------------
 > Terminal size: $WIDTH x $HEIGHT
+> Start position: $START_ROW, $START_COL
 --------------------------------------------------------------------------------
 };
 
@@ -200,20 +208,19 @@ sub move_cursor_position {
   print "\e[${row};${col}H";
 }
 
-sub clear_screen {
-  print "\e[2J";
-}
-
 sub redraw {
-  # Clear the screen
-  clear_screen;
+  # Clear the editable area only
+  for (my $i = 0; $i < $HEIGHT; ++$i) {
+    move_cursor_position($START_ROW + $i, 0);
+    print " " x $WIDTH;
+  }
 
-  # Move the cursor to the top-left corner and print the buffer
-  move_cursor_position(0, 0);
-  print "$BUFFER\n";
+  # Move the cursor to the start position and print the buffer
+  move_cursor_position($START_ROW, $START_COL);
+  print "$BUFFER";
 
   # Restore the cursor position
-  move_cursor_position($ROW, $COL);
+  move_cursor_position($START_ROW + $ROW, $START_COL + $COL);
 
   debug_pos;
 }
@@ -325,12 +332,23 @@ sub backspace {
   }
 }
 
+sub get_cursor_position {
+  # Request cursor position
+  print "\e[6n";
+
+  # Read the response
+  my $pos = do{ local $/ = 'R'; <STDIN> };
+
+  # Parse out the row and column
+  my ($row, $col) = $pos =~ /\e\[(\d+);(\d+)R/;
+
+  # Adjust to 0-based index
+  return ($row - 1, $col - 1);
+}
+
 #-------------------------------------------------------------------------------
 # Main
 #-------------------------------------------------------------------------------
-ReadMode 'cbreak';
-END{ ReadMode 'restore' };
-
 while (1) {
   redraw;
 
@@ -394,6 +412,5 @@ while (1) {
   }
 }
 
-clear_screen;
-move_cursor_position(0, 0);
+move_cursor_position($START_ROW, $START_COL);
 print "$BUFFER\n";
