@@ -61,6 +61,12 @@ validate-env() {
     die "OPENAI_API_KEY is not a valid key"
   fi
 
+  if gum --version | grep -q -v 'v0.12.0'; then
+    warn "Version warning: gum v0.12.0 is suggested:"
+    warn "  - v0.13 broke 'escape' in 'gum write'"
+    warn "  - v0.14 broke *everything* in 'gum write'"
+  fi
+
   mkdir -p "$STORE"
 
   touch "$CHAT_HISTORY_FILE"
