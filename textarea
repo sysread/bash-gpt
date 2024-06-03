@@ -30,16 +30,29 @@ our $NEWLINE   = \("NEWLINE");
 our $ESCAPE    = \("ESCAPE");
 
 our $BUFFER    = '';
+our $OUTPUT    = '';
 our $INDEX     = 0;
 our $COL       = 0;
 our $ROW       = 0;
 
 our ($WIDTH, $HEIGHT) = GetTerminalSize;
 
+# Open /dev/tty for reading and writing
+open(our $TTY_IN, '<', '/dev/tty')  or die "Can't open /dev/tty for reading: $!";
+open(our $TTY_OUT, '>', '/dev/tty') or die "Can't open /dev/tty for writing: $!";
+
+END{
+  close $TTY_IN;
+  close $TTY_OUT;
+}
+
 # Set the terminal to cbreak mode, then restore it to normal mode when the
 # program exits. This must happen before get_cursor_position() is called.
-ReadMode 'cbreak';
-END{ ReadMode 'normal' };
+ReadMode 'cbreak', $TTY_IN;
+
+END{
+  ReadMode 'restore', $TTY_IN;
+};
 
 # Capture the initial cursor position
 our ($START_ROW, $START_COL) = get_cursor_position();
@@ -91,7 +104,7 @@ sub clamp {
 }
 
 sub read_key {
-  my $key = ReadKey 0;
+  my $key = ReadKey 0, $TTY_IN;
 
   # Check for EOF
   return $EOF unless defined $key;
@@ -205,19 +218,19 @@ sub move_cursor_position {
   my ($row, $col) = @_;
   ++$row;
   ++$col;
-  print "\e[${row};${col}H";
+  print $TTY_OUT "\e[${row};${col}H";
 }
 
 sub redraw {
   # Clear the editable area only
   for (my $i = 0; $i < $HEIGHT; ++$i) {
     move_cursor_position($START_ROW + $i, 0);
-    print " " x $WIDTH;
+    print $TTY_OUT " " x $WIDTH;
   }
 
   # Move the cursor to the start position and print the buffer
   move_cursor_position($START_ROW, $START_COL);
-  print "$BUFFER";
+  print $TTY_OUT "$BUFFER";
 
   # Restore the cursor position
   move_cursor_position($START_ROW + $ROW, $START_COL + $COL);
@@ -334,7 +347,7 @@ sub backspace {
 
 sub get_cursor_position {
   # Request cursor position
-  print "\e[6n";
+  print $TTY_OUT "\e[6n";
 
   # Read the response
   my $pos = do{ local $/ = 'R'; <STDIN> };
@@ -347,13 +360,12 @@ sub get_cursor_position {
 }
 
 #-------------------------------------------------------------------------------
-# Main
+# Read loop
 #-------------------------------------------------------------------------------
 while (1) {
   redraw;
 
   my $key = read_key;
-  debug_msg "KEY: $key";
 
   if ($key eq $EOF) {
     last;
@@ -364,39 +376,35 @@ while (1) {
   }
 
   if ($key eq $NEWLINE) {
-    debug_msg('NEWLINE');
+    $OUTPUT .= "\n";
     newline;
     next;
   }
 
   # backspace
   if ($key eq $BACKSPACE) {
-    debug_msg('BACKSPACE');
+    chop $OUTPUT;
     backspace;
     next;
   }
 
   # arrow keys
   if ($key eq $UP) {
-    debug_msg('UP');
     up;
     next;
   }
 
   if ($key eq $DOWN) {
-    debug_msg('DOWN');
     down;
     next;
   }
 
   if ($key eq $LEFT) {
-    debug_msg('LEFT');
     left;
     next;
   }
 
   if ($key eq $RIGHT) {
-    debug_msg('RIGHT');
     right;
     next;
   }
@@ -410,7 +418,15 @@ while (1) {
     ++$ROW;
     $COL = 0;
   }
+
+  $OUTPUT .= $key;
 }
 
-move_cursor_position($START_ROW, $START_COL);
-print "$BUFFER\n";
+# Reset the cursor position to the start of the editable area if the script is
+# being run interactively.
+if (-t STDOUT) {
+  printf "\e[%d;%dH", $START_ROW + 1, $START_COL + 1;
+}
+
+# Print the output
+print "$OUTPUT\n";
