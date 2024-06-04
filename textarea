@@ -10,8 +10,45 @@
 use strict;
 use warnings;
 
-use List::Util qw(min max);
-use Term::ReadKey qw(ReadKey ReadMode GetTerminalSize);
+#-------------------------------------------------------------------------------
+# Check for Term::ReadKey module and explain how to install it if it's missing.
+#-------------------------------------------------------------------------------
+BEGIN{
+  eval{
+    require Term::ReadKey;
+    Term::ReadKey->import(qw(ReadKey ReadMode GetTerminalSize));
+    1;
+  } or do{
+    my $error = $@;
+
+    print "Unable to load Term::ReadKey module:\n\n$error\n\n";
+    print "To install Term::ReadKey on your system, follow the instructions below:\n\n";
+
+    if ($^O =~ /darwin/) {
+      print "=== macOS Instructions ===\n";
+      print "1. Install Homebrew (if not already installed) from https://brew.sh/\n";
+      print "2. Install cpanminus (if not already installed):\n";
+      print "   brew install cpanminus\n";
+      print "3. Then run:\n";
+      print "   cpanm -nq Term::ReadKey\n";
+      print "==========================\n";
+    } elsif ($^O =~ /linux/) {
+      print "=== Linux Instructions ===\n";
+      print "Ensure you have the necessary build tools installed. For example, on Debian-based systems:\n";
+      print "1. Open a terminal and run:\n";
+      print "   sudo apt-get update\n";
+      print "   sudo apt-get install build-essential\n";
+      print "   sudo apt-get install cpanminus\n";
+      print "2. Then run:\n";
+      print "   cpanm -nq Term::ReadKey\n";
+      print "=========================\n";
+    } else {
+      print "Please refer to your operating system's package manager or documentation for installing the Term::ReadKey module.\n";
+    }
+
+    exit 1;
+  };
+}
 
 #-------------------------------------------------------------------------------
 # Globals
@@ -100,7 +137,9 @@ sub debug_pos {
 #-------------------------------------------------------------------------------
 sub clamp {
   my ($min, $max, $val) = @_;
-  return min($max, max($min, $val));
+  return $min if $val < $min;
+  return $max if $val > $max;
+  return $val;
 }
 
 sub read_key {
