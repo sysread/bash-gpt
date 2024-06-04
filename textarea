@@ -9,6 +9,8 @@
 use strict;
 use warnings;
 
+use POSIX qw(:signal_h);
+
 #-------------------------------------------------------------------------------
 # Check for Term::ReadKey module and explain how to install it if it's missing.
 #-------------------------------------------------------------------------------
@@ -134,7 +136,8 @@ sub debug_pos {
 #-------------------------------------------------------------------------------
 # Signal handlers
 #-------------------------------------------------------------------------------
-$SIG{INT} = \&exit_failure;
+$SIG{INT}   = \&exit_failure;
+$SIG{WINCH} = \&update_screen_dimensions;
 
 #-------------------------------------------------------------------------------
 # Exit handlers
@@ -314,6 +317,19 @@ sub redraw {
   move_cursor_position($START_ROW + $ROW, $START_COL + $COL, $TTY_OUT);
 
   debug_pos;
+}
+
+sub update_screen_dimensions {
+  clear_editable_area($TTY_OUT);
+
+  ($WIDTH, $HEIGHT) = GetTerminalSize;
+
+  debug_msg "Terminal resized to $WIDTH x $HEIGHT";
+  debug_pos;
+
+  clear_editable_area($TTY_OUT);
+  update_position_from_index();
+  redraw();
 }
 
 sub up {
