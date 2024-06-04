@@ -2,7 +2,6 @@
 
 #-------------------------------------------------------------------------------
 # TODO
-#   - what happens when the line content exceeds $WIDTH?
 #   - scrolling or somehow dealing with the buffer when it exceeds $HEIGHT lines
 #   - what if the terminal is resized?
 #-------------------------------------------------------------------------------
@@ -198,10 +197,10 @@ sub read_key {
     # immediately available. We can use a fractional read timeout to check for
     # this. If there is no other character immediately available, we can assume
     # the user just hit the escape key.
-    my $next_key = ReadKey(0.1);
+    my $next_key = ReadKey(0.1, $TTY_IN);
 
     if (defined $next_key && $next_key eq '[') {
-      my $ctrl_key = ReadKey(0);
+      my $ctrl_key = ReadKey(0, $TTY_IN);
 
       if (defined $ctrl_key) {
         return $UP    if $ctrl_key eq 'A';
