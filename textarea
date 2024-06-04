@@ -133,7 +133,39 @@ sub debug_pos {
 }
 
 #-------------------------------------------------------------------------------
-# Functions
+# Signal handlers
+#-------------------------------------------------------------------------------
+$SIG{INT} = \&exit_failure;
+
+#-------------------------------------------------------------------------------
+# Exit handlers
+#-------------------------------------------------------------------------------
+sub exit_success {
+  # Reset the cursor position to the start of the editable area if the script is
+  # being run interactively.
+  if (-t STDOUT) {
+    clear_editable_area(*STDOUT);
+  }
+
+  # Print the output
+  print "$OUTPUT\n";
+
+  exit 0;
+}
+
+sub exit_failure {
+  # Reset the cursor position to the start of the editable area if the script is
+  # being run interactively.
+  if (-t STDOUT) {
+    clear_editable_area(*STDOUT);
+    warn "cancelled\n";
+  }
+
+  exit 1;
+}
+
+#-------------------------------------------------------------------------------
+# Movement and drawing
 #-------------------------------------------------------------------------------
 sub clamp {
   my ($min, $max, $val) = @_;
@@ -254,25 +286,33 @@ sub update_position_from_index {
 }
 
 sub move_cursor_position {
-  my ($row, $col) = @_;
+  my ($row, $col, $fh) = @_;
   ++$row;
   ++$col;
-  print $TTY_OUT "\e[${row};${col}H";
+  print $fh "\e[${row};${col}H";
+}
+
+sub clear_editable_area {
+  my $fh = shift // $TTY_OUT;
+
+  for (my $i = 0; $i < $HEIGHT; ++$i) {
+    move_cursor_position($START_ROW + $i, 0, $fh);
+    print $fh " " x $WIDTH;
+  }
+
+  # Move the cursor to the start position
+  move_cursor_position($START_ROW, $START_COL, $fh);
 }
 
 sub redraw {
   # Clear the editable area only
-  for (my $i = 0; $i < $HEIGHT; ++$i) {
-    move_cursor_position($START_ROW + $i, 0);
-    print $TTY_OUT " " x $WIDTH;
-  }
+  clear_editable_area($TTY_OUT);
 
-  # Move the cursor to the start position and print the buffer
-  move_cursor_position($START_ROW, $START_COL);
+  # Print the buffer
   print $TTY_OUT "$BUFFER";
 
   # Restore the cursor position
-  move_cursor_position($START_ROW + $ROW, $START_COL + $COL);
+  move_cursor_position($START_ROW + $ROW, $START_COL + $COL, $TTY_OUT);
 
   debug_pos;
 }
@@ -461,11 +501,4 @@ while (1) {
   $OUTPUT .= $key;
 }
 
-# Reset the cursor position to the start of the editable area if the script is
-# being run interactively.
-if (-t STDOUT) {
-  printf "\e[%d;%dH", $START_ROW + 1, $START_COL + 1;
-}
-
-# Print the output
-print "$OUTPUT\n";
+exit_success;
