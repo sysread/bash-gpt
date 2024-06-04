@@ -159,7 +159,7 @@ sub read_key {
   # Check for newline (Enter)
   return $NEWLINE if $key eq "\n";
 
-  # Check for escape sequences (arrow keys)
+  # Check for escape sequences (e.g., arrow keys)
   if ($key eq "\e") {
     # An escape sequence (that isn't the user hitting the escape key) will have
     # another key immediately following the escape character, and should be
@@ -169,13 +169,13 @@ sub read_key {
     my $next_key = ReadKey(0.1);
 
     if (defined $next_key && $next_key eq '[') {
-      my $arrow_key = ReadKey(0);
+      my $ctrl_key = ReadKey(0);
 
-      if (defined $arrow_key) {
-        return $UP    if $arrow_key eq 'A';
-        return $DOWN  if $arrow_key eq 'B';
-        return $RIGHT if $arrow_key eq 'C';
-        return $LEFT  if $arrow_key eq 'D';
+      if (defined $ctrl_key) {
+        return $UP    if $ctrl_key eq 'A';
+        return $DOWN  if $ctrl_key eq 'B';
+        return $RIGHT if $ctrl_key eq 'C';
+        return $LEFT  if $ctrl_key eq 'D';
       }
     }
     else {
