@@ -66,6 +66,8 @@ our $LEFT      = \("LEFT");
 our $RIGHT     = \("RIGHT");
 our $NEWLINE   = \("NEWLINE");
 our $ESCAPE    = \("ESCAPE");
+our $CTRL_A    = \("CTRL_A");
+our $CTRL_E    = \("CTRL_E");
 
 our $BUFFER    = '';
 our $OUTPUT    = '';
@@ -186,6 +188,12 @@ sub read_key {
 
   # Check for EOF (Ctrl-D)
   return $EOF if defined $key && $ascii == 4;
+
+  # Check for Ctrl-E
+  return $CTRL_E if $ascii == 5;
+
+  # Check for Ctrl-A
+  return $CTRL_A if $ascii == 1;
 
   # Check for Backspace
   return $BACKSPACE if $ascii == 8 || $ascii == 127;
@@ -439,6 +447,16 @@ sub backspace {
   }
 }
 
+sub ctrl_a {
+  $COL = 0;
+  $INDEX = start_index_of_row;
+}
+
+sub ctrl_e {
+  $COL = last_col_in_current_line;
+  $INDEX = start_index_of_row + $COL;
+}
+
 sub get_cursor_position {
   # Request cursor position
   print $TTY_OUT "\e[6n";
@@ -500,6 +518,18 @@ while (1) {
 
   if ($key eq $RIGHT) {
     right;
+    next;
+  }
+
+  # Ctrl-A
+  if ($key eq $CTRL_A) {
+    ctrl_a;
+    next;
+  }
+
+  # Ctrl-E
+  if ($key eq $CTRL_E) {
+    ctrl_e;
     next;
   }
 
