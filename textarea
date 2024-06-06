@@ -357,24 +357,30 @@ sub up {
     --$SCROLL_OFFSET;
   }
 
-  # If the current line is shorter than the previous one, adjust the column
-  my $last_col = last_col_in_current_line;
+  # Calculate the start index of the previous row
+  my $start_index_of_prev_row = start_index_of_row($ROW);
+  my $prev_row_length = last_col_in_current_line($ROW) + 1; # Adjust for 0-based index
 
-  if ($last_col < $COL) {
-    $COL = $last_col;
-    $INDEX = start_index_of_row + $COL;
-  } else {
-    $INDEX -= $COL + 1;  # Move the index to the end of the previous line
-    $COL = last_col_in_current_line + 1;  # Adjust for insertion point
+  # Adjust the column if the previous line is shorter
+  if ($COL > $prev_row_length) {
+    $COL = $prev_row_length;
   }
+
+  $INDEX = $start_index_of_prev_row + $COL;
+
+  # Clamp the index to ensure it does not exceed the buffer length
+  $INDEX = clamp(0, length($BUFFER), $INDEX);
+  update_position_from_index();
+
+  debug_msg("UP: Index=$INDEX, Row=$ROW, Col=$COL, BufferLen=" . length($BUFFER));
 }
 
 sub down {
-  my $num_rows = num_rows_in_buffer;
-  my $last_index = $num_rows - 1;
+  # Calculate the total number of rows
+  my $num_rows = num_rows_in_buffer();
 
   # Already at the bottom of the buffer
-  if ($ROW == $last_index) {
+  if ($ROW >= $num_rows - 1) {
     return;
   }
 
@@ -386,13 +392,22 @@ sub down {
     ++$SCROLL_OFFSET;
   }
 
-  # If the current line is shorter than the next one, adjust the column
-  my $last_col = last_col_in_current_line;
+  # Calculate the start index of the next row
+  my $start_index_of_next_row = start_index_of_row($ROW);
+  my $next_row_length = last_col_in_current_line($ROW) + 1; # Adjust for 0-based index
 
-  if ($last_col < $COL) {
-    $COL = $last_col;
-    $INDEX = start_index_of_row + $COL;
+  # Adjust the column if the next line is shorter
+  if ($COL > $next_row_length) {
+    $COL = $next_row_length;
   }
+
+  $INDEX = $start_index_of_next_row + $COL;
+
+  # Clamp the index to ensure it does not exceed the buffer length
+  $INDEX = clamp(0, length($BUFFER), $INDEX);
+  update_position_from_index();
+
+  debug_msg("DOWN: Index=$INDEX, Row=$ROW, Col=$COL, BufferLen=" . length($BUFFER));
 }
 
 sub left {
@@ -419,7 +434,7 @@ sub left {
 
 sub right {
   # Reached the end of the buffer
-  if ($INDEX == length $BUFFER) {
+  if ($INDEX >= length $BUFFER) {
     return;
   }
 
@@ -439,6 +454,9 @@ sub right {
 
   ++$INDEX;
   ++$COL;
+
+  # Clamp the index to ensure it does not exceed the buffer length
+  $INDEX = clamp(0, length($BUFFER), $INDEX);
 }
 
 sub newline {
@@ -498,14 +516,17 @@ while (1) {
   my $key = read_key;
 
   if ($key eq $EOF) {
+    debug_msg 'EOF';
     last;
   }
 
   if ($key eq $ESCAPE) {
+    debug_msg 'ESCAPE';
     exit 1;
   }
 
   if ($key eq $NEWLINE) {
+    debug_msg 'NEWLINE';
     $OUTPUT .= "\n";
     newline;
     next;
@@ -513,6 +534,7 @@ while (1) {
 
   # backspace
   if ($key eq $BACKSPACE) {
+    debug_msg 'BACKSPACE';
     chop $OUTPUT;
     backspace;
     next;
@@ -520,36 +542,44 @@ while (1) {
 
   # arrow keys
   if ($key eq $UP) {
+    debug_msg 'UP';
     up;
     next;
   }
 
   if ($key eq $DOWN) {
+    debug_msg 'DOWN';
     down;
     next;
   }
 
   if ($key eq $LEFT) {
+    debug_msg 'LEFT';
     left;
     next;
   }
 
   if ($key eq $RIGHT) {
+    debug_msg 'RIGHT';
     right;
     next;
   }
 
   # Ctrl-A
   if ($key eq $CTRL_A) {
+    debug_msg 'CTRL-A';
     ctrl_a;
     next;
   }
 
   # Ctrl-E
   if ($key eq $CTRL_E) {
+    debug_msg 'CTRL-E';
     ctrl_e;
     next;
   }
+
+  debug_msg "KEY: $key";
 
   substr($BUFFER, $INDEX, 0, $key);
   ++$INDEX;
