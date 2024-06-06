@@ -1,11 +1,5 @@
 #!/usr/bin/env perl
 
-#-------------------------------------------------------------------------------
-# TODO
-#   - scrolling or somehow dealing with the buffer when it exceeds $HEIGHT lines
-#   - what if the terminal is resized?
-#-------------------------------------------------------------------------------
-
 use strict;
 use warnings;
 
@@ -54,26 +48,27 @@ BEGIN{
 #-------------------------------------------------------------------------------
 # Globals
 #-------------------------------------------------------------------------------
-our $|         = 1;  # auto-flush STDOUT
+our $|             = 1;  # auto-flush STDOUT
 
-our $DEBUG     = 1;
+our $DEBUG         = 1;
 
-our $EOF       = \("EOF");
-our $BACKSPACE = \("BACKSPACE");
-our $UP        = \("UP");
-our $DOWN      = \("DOWN");
-our $LEFT      = \("LEFT");
-our $RIGHT     = \("RIGHT");
-our $NEWLINE   = \("NEWLINE");
-our $ESCAPE    = \("ESCAPE");
-our $CTRL_A    = \("CTRL_A");
-our $CTRL_E    = \("CTRL_E");
+our $EOF           = \("EOF");
+our $BACKSPACE     = \("BACKSPACE");
+our $UP            = \("UP");
+our $DOWN          = \("DOWN");
+our $LEFT          = \("LEFT");
+our $RIGHT         = \("RIGHT");
+our $NEWLINE       = \("NEWLINE");
+our $ESCAPE        = \("ESCAPE");
+our $CTRL_A        = \("CTRL_A");
+our $CTRL_E        = \("CTRL_E");
 
-our $BUFFER    = '';
-our $OUTPUT    = '';
-our $INDEX     = 0;
-our $COL       = 0;
-our $ROW       = 0;
+our $BUFFER        = '';
+our $OUTPUT        = '';
+our $INDEX         = 0;
+our $COL           = 0;
+our $ROW           = 0;
+our $SCROLL_OFFSET = 0;
 
 our ($WIDTH, $HEIGHT) = GetTerminalSize;
 
@@ -96,6 +91,8 @@ END{
 
 # Capture the initial cursor position
 our ($START_ROW, $START_COL) = get_cursor_position();
+
+our $VISIBLE_LINES = $HEIGHT - $START_ROW;
 
 #-------------------------------------------------------------------------------
 # Debug
@@ -130,6 +127,7 @@ sub debug_msg {
 
 sub debug_pos {
   my $len = length $BUFFER;
+  debug_msg "Visible lines: $VISIBLE_LINES | Scroll offset: $SCROLL_OFFSET";
   debug_msg "Index: $INDEX | Row: $ROW | Col: $COL | BufferLen: $len";
   debug_msg "Buffer: <<<\n$BUFFER\n>>>";
   debug_msg;
@@ -305,7 +303,7 @@ sub move_cursor_position {
 sub clear_editable_area {
   my $fh = shift // $TTY_OUT;
 
-  for (my $i = 0; $i < $HEIGHT; ++$i) {
+  for (my $i = 0; $i < $VISIBLE_LINES; ++$i) {
     move_cursor_position($START_ROW + $i, 0, $fh);
     print $fh " " x $WIDTH;
   }
@@ -318,11 +316,15 @@ sub redraw {
   # Clear the editable area only
   clear_editable_area($TTY_OUT);
 
-  # Print the buffer
-  print $TTY_OUT "$BUFFER";
+  # Print the buffer from the scroll offset
+  my @lines = split /\n/, $BUFFER;
+  for (my $i = 0; $i < $VISIBLE_LINES && $i + $SCROLL_OFFSET < @lines; ++$i) {
+    move_cursor_position($START_ROW + $i, 0, $TTY_OUT);
+    print $TTY_OUT $lines[$i + $SCROLL_OFFSET];
+  }
 
   # Restore the cursor position
-  move_cursor_position($START_ROW + $ROW, $START_COL + $COL, $TTY_OUT);
+  move_cursor_position($START_ROW + ($ROW - $SCROLL_OFFSET), $START_COL + $COL, $TTY_OUT);
 
   debug_pos;
 }
@@ -331,6 +333,7 @@ sub update_screen_dimensions {
   clear_editable_area($TTY_OUT);
 
   ($WIDTH, $HEIGHT) = GetTerminalSize;
+  $VISIBLE_LINES = $HEIGHT - 12;
 
   debug_msg "Terminal resized to $WIDTH x $HEIGHT";
   debug_pos;
@@ -348,6 +351,11 @@ sub up {
 
   # Move up to the previous line
   --$ROW;
+
+  # Scroll if necessary
+  if ($ROW < $SCROLL_OFFSET) {
+    --$SCROLL_OFFSET;
+  }
 
   # If the current line is shorter than the previous one, adjust the column
   my $last_col = last_col_in_current_line;
@@ -372,6 +380,11 @@ sub down {
 
   # Move down to the next line
   ++$ROW;
+
+  # Scroll if necessary
+  if ($ROW >= $SCROLL_OFFSET + $VISIBLE_LINES) {
+    ++$SCROLL_OFFSET;
+  }
 
   # If the current line is shorter than the next one, adjust the column
   my $last_col = last_col_in_current_line;
@@ -434,6 +447,11 @@ sub newline {
   ++$INDEX;
   ++$ROW;
   $COL = 0;
+
+  # Scroll if necessary
+  if ($ROW >= $SCROLL_OFFSET + $VISIBLE_LINES) {
+    ++$SCROLL_OFFSET;
+  }
 
   # Move the cursor to the next line
   $INDEX = start_index_of_row;
