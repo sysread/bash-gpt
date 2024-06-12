@@ -127,8 +127,11 @@ sub debug_msg {
 
 sub debug_pos {
   my $len = length $BUFFER;
+  my $chr = substr $BUFFER, $INDEX, 1;
+  my $ord = ord $chr;
+  debug_msg;
   debug_msg "Visible lines: $VISIBLE_LINES | Scroll offset: $SCROLL_OFFSET";
-  debug_msg "Index: $INDEX | Row: $ROW | Col: $COL | BufferLen: $len";
+  debug_msg "Index: $INDEX | Character: '$chr' | ASCII: $ord | Row: $ROW | Col: $COL | BufferLen: $len";
   debug_msg "Buffer: <<<\n$BUFFER\n>>>";
   debug_msg;
 }
@@ -227,10 +230,54 @@ sub read_key {
   return $key;
 }
 
+sub start_index_of_current_row {
+  if ($ROW == 0) {
+    return 0;
+  }
+
+  my $max = length($BUFFER);
+  my $row = 0;
+  my $col = 0;
+  my $idx = 0;
+
+  while ($idx < $max && $row < $ROW) {
+    my $char = substr($BUFFER, $idx, 1);
+
+    if ($char eq "\n") {
+      # Move to next row
+      ++$row;
+
+      # Reset column
+      $col = 0;
+
+      # Index increments by 1 for the newline character and then another to
+      # move to the first character on the next row.
+      $idx += 2;
+    }
+    elsif (++$col >= $WIDTH) {
+      # Move to next row
+      ++$row;
+
+      # Reset column
+      $col = 0;
+
+      # Index increments by 1 to move to the next row
+      $idx += 1;
+    }
+    else {
+      # Move to next character
+      ++$idx;
+    }
+  }
+
+  return $idx;
+}
+
 # Retrieve the index in the overall buffer at the beginning of the current row
 sub start_index_of_row {
   my $idx  = 0;
   my $line = 0;
+  my $col  = 0;
   my $max  = length $BUFFER;
 
   if ($ROW == 0) {
@@ -243,6 +290,13 @@ sub start_index_of_row {
     if (substr($BUFFER, $idx, 1) eq "\n") {
       ++$line;
     }
+    elsif ($col == $WIDTH) {
+      ++$line;
+      $col = 0;
+    }
+    else {
+      ++$col;
+    }
 
     ++$idx;
   }
@@ -251,21 +305,58 @@ sub start_index_of_row {
 }
 
 sub last_col_in_current_line {
-  my $idx = start_index_of_row;
-  my $col = 0;
+  my $idx = start_index_of_current_row;
+debug_msg("LAST_COL: line starts at:   $idx");
 
-  # Walk through the buffer, starting from index $idx, until we reach
-  # the end of the line, identified by either a newline (\n) or the end
-  # of the buffer itself.
-  while (substr($BUFFER, $idx, 1) ne "\n" && $idx < length $BUFFER) {
-    ++$col;
-    ++$idx;
+  # The last col in the line is either:
+  #   - a newline
+  #   - the end of the row (at $WIDTH - 1)
+  #   - the end of the buffer
+  my $newline = index $BUFFER, "\n", $idx;
+debug_msg("LAST_COL: newline at index: $newline");
+
+  # Newline found
+  if ($newline != -1) {
+    # If the newline is before WIDTH, then the last col is the newline
+    if ($newline < $WIDTH) {
+      return $newline - 1;
+    }
+    # If the newline is at or beyond WIDTH, then the last col is WIDTH - 1
+    else {
+      return $WIDTH - 1;
+    }
   }
-
-  return clamp(0, $WIDTH - 1, $col - 1);
+  # No newline was found
+  else {
+    # If there are more than WIDTH characters left in the buffer, then the last
+    # col is WIDTH - 1.
+    if (length($BUFFER) - $idx > $WIDTH) {
+      return $WIDTH - 1;
+    }
+    else {
+debug_msg "LAST_COL: " . length($BUFFER) . " - $idx - 1 = " . (length($BUFFER) - $idx - 1);
+      return length($BUFFER) - $idx - 1;
+    }
+  }
 }
 
 sub num_rows_in_buffer {
+  my $rows = 1;
+  my $col  = 0;
+
+  for (my $i = 0; $i < length $BUFFER; ++$i) {
+    my $char = substr $BUFFER, $i, 1;
+
+    if (++$col >= $WIDTH || $char eq "\n") {
+      ++$rows;
+      $col = 0;
+    }
+  }
+
+  return $rows;
+}
+
+sub num_rows_in_buffer_old {
   my $rows = 1;
 
   for (my $i = 0; $i < length $BUFFER; ++$i) {
@@ -278,19 +369,42 @@ sub num_rows_in_buffer {
 }
 
 sub update_position_from_index {
-  my $idx  = 0;
-  my $line = 0;
+  my $idx = 0;
+  my $row = 0;
+  my $col = 0;
 
   while ($idx < $INDEX) {
-    if (substr($BUFFER, $idx, 1) eq "\n") {
-      ++$line;
-    }
+    my $char = substr($BUFFER, $idx, 1);
 
-    ++$idx;
+    if ($char eq "\n") {
+      # Move to next row
+      ++$row;
+
+      # Reset column
+      $col = 0;
+
+      # Index increments by 1 for the newline character and then another to
+      # move to the first character on the next row.
+      $idx += 2;
+    }
+    elsif (++$col >= $WIDTH) {
+      # Move to next row
+      ++$row;
+
+      # Reset column
+      $col = 0;
+
+      # Index increments by 1 to move to the next row
+      $idx += 1;
+    }
+    else {
+      # Move to next character
+      ++$idx;
+    }
   }
 
-  $ROW = $line;
-  $COL = $INDEX - start_index_of_row;
+  $ROW = $row;
+  $COL = $col;
 }
 
 sub move_cursor_position {
@@ -312,12 +426,45 @@ sub clear_editable_area {
   move_cursor_position($START_ROW, $START_COL, $fh);
 }
 
+sub split_buffer {
+  my @lines;
+  my $line   = '';
+  my $length = 0;
+
+  # Handle the case where $BUFFER is empty
+  return @lines if !defined $BUFFER || $BUFFER eq '';
+
+  for my $char (split //, $BUFFER) {
+    if ($char eq "\n") {
+      push @lines, $line;
+      $line = '';
+      $length = 0;
+    }
+    else {
+      $line .= $char;
+      $length++;
+
+      if ($length == $WIDTH) {
+        push @lines, $line;
+        $line = '';
+        $length = 0;
+      }
+    }
+  }
+
+  # Add the final line if it's not empty
+  push @lines, $line if $line ne '';
+
+  return @lines;
+}
+
 sub redraw {
   # Clear the editable area only
   clear_editable_area($TTY_OUT);
 
   # Print the buffer from the scroll offset
-  my @lines = split /\n/, $BUFFER;
+  my @lines = split_buffer;
+
   for (my $i = 0; $i < $VISIBLE_LINES && $i + $SCROLL_OFFSET < @lines; ++$i) {
     move_cursor_position($START_ROW + $i, 0, $TTY_OUT);
     print $TTY_OUT $lines[$i + $SCROLL_OFFSET];
@@ -358,26 +505,24 @@ sub up {
   }
 
   # Calculate the start index of the previous row
-  my $start_index_of_prev_row = start_index_of_row($ROW);
-  my $prev_row_length = last_col_in_current_line($ROW) + 1; # Adjust for 0-based index
+  my $start_index_of_row = start_index_of_current_row();
+  my $row_length         = last_col_in_current_line() + 1; # Adjust for 0-based index
 
   # Adjust the column if the previous line is shorter
-  if ($COL > $prev_row_length) {
-    $COL = $prev_row_length;
+  if ($COL > $row_length) {
+    $COL = $row_length;
   }
 
-  $INDEX = $start_index_of_prev_row + $COL;
+  $INDEX = $start_index_of_row + $COL;
 
   # Clamp the index to ensure it does not exceed the buffer length
   $INDEX = clamp(0, length($BUFFER), $INDEX);
   update_position_from_index();
-
-  debug_msg("UP: Index=$INDEX, Row=$ROW, Col=$COL, BufferLen=" . length($BUFFER));
 }
 
 sub down {
   # Calculate the total number of rows
-  my $num_rows = num_rows_in_buffer();
+  my $num_rows = num_rows_in_buffer;
 
   # Already at the bottom of the buffer
   if ($ROW >= $num_rows - 1) {
@@ -392,22 +537,21 @@ sub down {
     ++$SCROLL_OFFSET;
   }
 
-  # Calculate the start index of the next row
-  my $start_index_of_next_row = start_index_of_row($ROW);
-  my $next_row_length = last_col_in_current_line($ROW) + 1; # Adjust for 0-based index
+  # Calculate the start index of the current row (that is, the next row, now
+  # that we've incremented $ROW to move down one).
+  my $start_index_of_row = start_index_of_current_row();
+  my $row_length         = last_col_in_current_line() + 1; # Adjust for 0-based index
 
   # Adjust the column if the next line is shorter
-  if ($COL > $next_row_length) {
-    $COL = $next_row_length;
+  if ($COL > $row_length) {
+    $COL = $row_length;
   }
 
-  $INDEX = $start_index_of_next_row + $COL;
+  $INDEX = $start_index_of_row + $COL;
 
   # Clamp the index to ensure it does not exceed the buffer length
   $INDEX = clamp(0, length($BUFFER), $INDEX);
   update_position_from_index();
-
-  debug_msg("DOWN: Index=$INDEX, Row=$ROW, Col=$COL, BufferLen=" . length($BUFFER));
 }
 
 sub left {
@@ -438,18 +582,15 @@ sub right {
     return;
   }
 
-  my $last_col = last_col_in_current_line;
+  my $last_col  = last_col_in_current_line;
+  my $next_char = substr $BUFFER, $INDEX + 1, 1;
 
   # Reached the end of the line
-  if ($COL >= $last_col) {
-    my $last_char_in_row = substr($BUFFER, $INDEX, 1);
-
-    if ($last_char_in_row eq "\n") {
-      ++$ROW;
-      $COL = 0;
-      $INDEX = start_index_of_row;
-      return;
-    }
+  if ($COL >= $last_col || $next_char eq "\n") {
+    $COL = 0;
+    ++$ROW;
+    ++$INDEX;
+    return;
   }
 
   ++$INDEX;
@@ -587,6 +728,11 @@ while (1) {
 
   # Wrap around to the next line if we reached the end of the current one
   if ($COL == $WIDTH) {
+    ++$ROW;
+    $COL = 0;
+  }
+
+  if ($key eq "\n") {
     ++$ROW;
     $COL = 0;
   }
