@@ -82,7 +82,9 @@ validate_env() {
   if [ -z "${OPENAI_API_KEY:-}" ]; then
     echo >&2 "Error: OPENAI_API_KEY is not set in the environment."
     exit 1
-  elif [[ ! "$OPENAI_API_KEY" =~ ^sk-[a-zA-Z0-9]{32,64}$ ]]; then
+  elif [[ "$OPENAI_API_KEY" =~ ^sk-[a-zA-Z0-9]{32,64}$ ]]; then
+    echo >&2 "Warning: You are using a legacy OPENAI_API_KEY. Please update soon!"
+  elif [[ ! "$OPENAI_API_KEY" =~ ^sk-[a-zA-Z0-9]+-[a-zA-Z0-9]{32,64}$ ]]; then
     echo >&2 "Error: OPENAI_API_KEY is not a valid key."
     exit 1
   fi
