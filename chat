@@ -37,7 +37,7 @@ trap 'rm -f $CONVERSATION_TMP' TERM
 # not yet ascertained that `gum` is available.
 # ------------------------------------------------------------------------------
 validate-env() {
-  local tools=("curl" "jq" "gum" "openai")
+  local tools=("curl" "jq" "gum" "tac" "openai")
   local cmd
 
   for cmd in "${tools[@]}"; do
@@ -49,6 +49,9 @@ validate-env() {
         echo ' - You can make it available by putting it on your PATH' >&2
         # shellcheck disable=SC2016
         echo '      export PATH="$PATH:/path/to/bash-gpt"' >&2
+      elif [ "$cmd" == "tac" ]; then
+        echo " - $cmd is a GNU coreutils tool." >&2
+        echo " - You can install it with 'brew install coreutils'" >&2
       fi
 
       exit 1
@@ -57,8 +60,6 @@ validate-env() {
 
   if [ -z "${OPENAI_API_KEY:-}" ]; then
     die "OPENAI_API_KEY is not set in the environment"
-  elif [[ ! "$OPENAI_API_KEY" =~ ^sk-[a-zA-Z0-9]{32,64}$ ]]; then
-    die "OPENAI_API_KEY is not a valid key"
   fi
 
   if gum --version | grep -q -v 'v0.12.0'; then
@@ -1033,6 +1034,7 @@ chat() {
       if [ "$THREAD_LABEL" != "New chat with $ASSISTANT_NAME" ]; then
         info "Retrieving conversation..."
         move-chat-to-beginning-of-history
+
         clear
       fi
 

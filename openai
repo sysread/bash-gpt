@@ -214,10 +214,6 @@ validate-env() {
 
   if [ -z "${OPENAI_API_KEY:-}" ]; then
     die "OPENAI_API_KEY is not set in the environment"
-  elif [[ "$OPENAI_API_KEY" =~ ^sk-[a-zA-Z0-9]{32,64}$ ]]; then
-    warn "Warning: You are using a legacy OPENAI_API_KEY. Please update soon!"
-  elif [[ ! "$OPENAI_API_KEY" =~ ^sk-[a-zA-Z0-9]+-[a-zA-Z0-9]{32,64}$ ]]; then
-    die "OPENAI_API_KEY is not a valid key"
   fi
 
   return 0
