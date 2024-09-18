@@ -940,6 +940,7 @@ print-user-msg() {
     msg=$(echo "$msg" | sed -n '1p')
   fi
 
+  echo
   gum style --foreground '#66FF66' --bold 'You:'
   gum format -- "$msg"
 }
@@ -955,7 +956,12 @@ print-gpt-msg() {
   gum style --foreground '#66CCFF' --bold "$ASSISTANT_NAME:"
 
   if [ -n "$msg" ]; then
+    echo
     gum format -- "$msg"
+  else
+    echo
+    echo ">>> !!! No response from GPT !!! <<<"
+    printf 'Maybe try \\run to get a response?'
   fi
 }
 
@@ -1118,16 +1124,24 @@ move-chat-to-beginning-of-history() {
   local chat_entry
 
   temp_file=$(mktemp)
-  chat_entry=$(grep "^$ASSISTANT_ID:$THREAD_ID:" "$CHAT_HISTORY_FILE")
 
-  # Remove the existing chat entry, if any, from the chat history
-  grep -v "^$ASSISTANT_ID:$THREAD_ID:" "$CHAT_HISTORY_FILE" > "$temp_file"
+  # Search for the chat entry
+  chat_entry=$(grep "^$ASSISTANT_ID:$THREAD_ID:" "$CHAT_HISTORY_FILE" || true)
 
-  # Add the chat entry to the "beginning" of the history file
-  {
-    cat "$temp_file"
-    echo "$chat_entry"
-  } > "$CHAT_HISTORY_FILE"
+  # Remove the existing chat entry, if any, from the chat history.
+  # Use '|| true' to prevent grep's exit status from causing the script to exit.
+  grep -v "^$ASSISTANT_ID:$THREAD_ID:" "$CHAT_HISTORY_FILE" > "$temp_file" || true
+
+  # Add the chat entry to the "beginning" of the history file if it exists
+  if [ -n "$chat_entry" ]; then
+    {
+      echo "$chat_entry"
+      cat "$temp_file"
+    } > "$CHAT_HISTORY_FILE"
+  else
+    # If no entry is found, just copy temp_file back
+    cat "$temp_file" > "$CHAT_HISTORY_FILE"
+  fi
 
   # Clean up
   rm -f "$temp_file"
