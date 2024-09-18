@@ -958,10 +958,6 @@ print-gpt-msg() {
   if [ -n "$msg" ]; then
     echo
     gum format -- "$msg"
-  else
-    echo
-    echo ">>> !!! No response from GPT !!! <<<"
-    printf 'Maybe try \\run to get a response?'
   fi
 }
 
