@@ -718,7 +718,7 @@ attach-web-content() {
 
 # ------------------------------------------------------------------------------
 # Chat supports a number of embedded directives, like \f to attach a file, and
-# \exec to include the output of a command (or \begin + \end for a multi-line
+# \x to include the output of a command (or \begin + \end for a multi-line
 # command). This function parses the message into text, exec, and file
 # sections, and prints each section out preceded by a label (TEXT, FILE, or
 # EXEC).
@@ -780,7 +780,7 @@ parse-message() {
       # ------------------------------------------------------------------------
       # Single line command
       # ------------------------------------------------------------------------
-      elif [[ "$line" =~ ^\\exec\ (.*) ]]; then
+      elif [[ "$line" =~ ^\\x\ (.*) ]]; then
         parsed_lines+=("EXEC ${BASH_REMATCH[1]}")
 
       # ------------------------------------------------------------------------
@@ -998,9 +998,9 @@ print-messages() {
 # ------------------------------------------------------------------------------
 # shellcheck disable=SC2016
 CHAT_COMMANDS=(
-  '\f $filename'
+  '\f $file'
+  '\x $cmd'
   '\www $url'
-  '\exec $cmd'
   '\begin $cmd \end'
   '\run'
 )
