@@ -300,7 +300,7 @@ list-models() {
 }
 
 select-model() {
-  local model="${1:-"$OPENAI_MODEL"}"
+  local model="${1:-"${OPENAI_MODEL:-}"}"
   local models=()
 
   while IFS=':' read -r name; do
