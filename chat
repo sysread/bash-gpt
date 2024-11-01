@@ -37,35 +37,44 @@ trap 'rm -f $CONVERSATION_TMP' TERM
 # not yet ascertained that `gum` is available.
 # ------------------------------------------------------------------------------
 validate-env() {
-  local tools=("curl" "jq" "gum" "tac" "openai")
-  local cmd
+  if ! command -v curl &> /dev/null; then
+    echo "curl is required" >&2
+    exit 1
+  fi
 
-  for cmd in "${tools[@]}"; do
-    if ! command -v "$cmd" &> /dev/null; then
-      echo "$cmd is not installed" >&2
+  if ! command -v jq &> /dev/null; then
+    echo "jq is not installed" >&2
+    exit 1
+  fi
 
-      if [ "$cmd" == "openai" ]; then
-        echo " - $cmd is a tool provided by this project." >&2
-        echo ' - You can make it available by putting it on your PATH' >&2
-        # shellcheck disable=SC2016
-        echo '      export PATH="$PATH:/path/to/bash-gpt"' >&2
-      elif [ "$cmd" == "tac" ]; then
-        echo " - $cmd is a GNU coreutils tool." >&2
-        echo " - You can install it with 'brew install coreutils'" >&2
-      fi
-
-      exit 1
-    fi
-  done
-
-  if [ -z "${OPENAI_API_KEY:-}" ]; then
-    die "OPENAI_API_KEY is not set in the environment"
+  if ! command -v gum &> /dev/null; then
+    echo "gum is required" >&2
+    echo " - gum is provided by https://github.com/charmbracelet/gum" >&2
+    exit 1
   fi
 
   if gum --version | grep -q -v 'v0.12.0'; then
     warn "Version warning: gum v0.12.0 is suggested:"
     warn "  - v0.13 broke 'escape' in 'gum write'"
     warn "  - v0.14 broke *everything* in 'gum write'"
+  fi
+
+  if ! command -v tac &> /dev/null; then
+    echo "tac is a GNU coreutils tool" >&2
+    echo " - MacoOS: 'brew install coreutils'" >&2
+    exit 1
+  fi
+
+  if ! command -v openai &> /dev/null; then
+    echo "openai is a tool provided by this project" >&2
+    echo " - You can make it available by putting it on your PATH" >&2
+    # shellcheck disable=SC2016
+    echo '   export PATH="$PATH:/path/to/bash-gpt"' >&2
+    exit 1
+  fi
+
+  if [ -z "${OPENAI_API_KEY:-}" ]; then
+    die "OPENAI_API_KEY is not set in the environment"
   fi
 
   mkdir -p "$STORE"
